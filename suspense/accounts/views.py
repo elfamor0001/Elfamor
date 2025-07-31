@@ -15,6 +15,7 @@ from django.views import View
 import json
 from .models import CustomUser  
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.text import slugify
 
 @csrf_exempt
 def verify_email(request, uidb64, token):
@@ -38,14 +39,19 @@ class RegisterView(View):
     def post(self, request):
         data = json.loads(request.body)
         email = data.get('email')
-        username = data.get('username')
         password = data.get('password')
         password2 = data.get('password2')
-        phone = data.get('phone', '')  # Optional field
+        phone = data.get('phone', '')  
 
         # Validation
-        if not all([email, username, password, password2]):
-            return JsonResponse({'error': 'Email, username, and passwords are required.'}, status=400)
+        if not all([email, phone, password, password2]):
+            return JsonResponse({'error': 'All fields are required. '}, status=400)
+
+        if phone:
+            if not phone.isdigit():
+                return JsonResponse({'error': 'Phone number must contain digits only.'}, status=400)
+            if len(phone) != 10:
+                return JsonResponse({'error': 'Phone number must be exactly 10 digits.'}, status=400)
         
         if password != password2:
             return JsonResponse({'error': 'Passwords do not match.'}, status=400)
@@ -53,8 +59,15 @@ class RegisterView(View):
         if CustomUser.objects.filter(email=email).exists():
             return JsonResponse({'error': 'Email already exists.'}, status=400)
         
-        if CustomUser.objects.filter(username=username).exists():
-            return JsonResponse({'error': 'Username already exists.'}, status=400)
+
+        # Generate a username if not provided
+        base_username = slugify(email.split('@')[0]) or 'user'
+        username = base_username
+        suffix = 1
+        while CustomUser.objects.filter(username=username).exists():
+            username = f"{base_username}{suffix}"
+            suffix += 1
+
 
         # Create user using custom manager
         user = CustomUser.objects.create_user(
