@@ -1,56 +1,77 @@
-from django.shortcuts import render
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Product
-from .serializers import ProductSerializer
+from rest_framework import generics, permissions
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.db import models
+from .models import Product, FragranceNote, ProductImage
+from .serializers import ProductSerializer, FragranceNoteSerializer, ProductImageSerializer
 
 
-# Create your views here.
+class FragranceNoteListCreateView(generics.ListCreateAPIView):
+    """API endpoint for listing and creating fragrance notes."""
+    queryset = FragranceNote.objects.all().order_by('note_type', 'name')
+    serializer_class = FragranceNoteSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
-# views.py
-class ProductListView(APIView):
-    def get(self, request):
-        products = Product.objects.all()
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        note_type = self.request.query_params.get('type', None)
+        if note_type:
+            queryset = queryset.filter(note_type=note_type)
+        return queryset
 
-        # Filter by size
-        size = request.GET.get('size')
-        if size and size != "All":
-            products = products.filter(size=size)
 
-        # Filter by availability (stock)
-        availability = request.GET.get('availability')
-        if availability == "InStock":
-            products = products.filter(stock__gt=0)
-        elif availability == "OutOfStock":
-            products = products.filter(stock=0)
+class FragranceNoteDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """API endpoint for retrieving, updating and deleting fragrance notes."""
+    queryset = FragranceNote.objects.all()
+    serializer_class = FragranceNoteSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
-        # Filter by category (if you have a category field)
-        category = request.GET.get('category')
-        if category and category != "View All":
-            products = products.filter(category=category)
 
-        # Search filter
-        search = request.GET.get('search')
-        if search:
-            from django.db.models import Q
-            products = products.filter(
-                Q(name__icontains=search) | Q(description__icontains=search)
-            )
+class ProductListCreateView(generics.ListCreateAPIView):
+    """API endpoint for listing and creating perfume products."""
+    queryset = Product.objects.all().order_by('-created_at')
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser]
 
-        # Sorting
-        sort = request.GET.get('sort')
-        if sort == "PriceLowHigh":
-            products = products.order_by('price')
-        elif sort == "PriceHighLow":
-            products = products.order_by('-price')
-        elif sort == "Newest":
-            products = products.order_by('-created_at')
-        # else: Featured or default, no sorting or your custom logic
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Filter by note
+        note_id = self.request.query_params.get('note_id', None)
+        if note_id:
+            queryset = queryset.filter(
+                models.Q(top_notes__id=note_id) |
+                models.Q(heart_notes__id=note_id) |
+                models.Q(base_notes__id=note_id)
+            ).distinct()
+        return queryset
 
-        serializer = ProductSerializer(
-            products, 
-            many=True,
-            context={'request': request}
-        )
-        return Response(serializer.data)
+
+class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """API endpoint for retrieving, updating and deleting perfume products."""
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser]
+
+
+class ProductImageListCreateView(generics.ListCreateAPIView):
+    """API endpoint for listing and creating product images."""
+    queryset = ProductImage.objects.all().order_by('-is_primary', '-created_at')
+    serializer_class = ProductImageSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        product_id = self.request.query_params.get('product_id', None)
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        return queryset
+
+
+class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """API endpoint for retrieving, updating and deleting product images."""
+    queryset = ProductImage.objects.all()
+    serializer_class = ProductImageSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser]

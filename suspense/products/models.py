@@ -1,61 +1,116 @@
 from django.db import models
-from datetime import datetime
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 from cloudinary.models import CloudinaryField
-import uuid
+from cloudinary import uploader
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-# Create your models here.
-class Product(models.Model):
-    SIZE_CHOICES = [
-        ('XS', 'XS'), ('S', 'S'), ('M', 'M'),
-        ('L', 'L'), ('XL', 'XL'), ('XXL', 'XXL'),
+class FragranceNote(models.Model):
+    """Model for individual fragrance notes that can be used in perfumes."""
+    NOTE_TYPES = [
+        ('top', 'Top Note'),
+        ('heart', 'Heart Note'),
+        ('base', 'Base Note'),
     ]
-    COLOR_CHOICES = [
-        ('white', 'White'), ('black', 'Black'), ('red', 'Red'),
-        ('blue', 'Blue'), ('green', 'Green'),
-    ]
-    CATEGORY_CHOICES = [
-        ('T-Shirts', 'T-Shirts'),
-        ('Polos', 'Polos'),
-        ('Shirts', 'Shirts'),
-        ('Jackets', 'Jackets'),
-        ('Hoodies', 'Hoodies'),
-        ('Sweatshirts', 'Sweatshirts'),
-        ('Cargos', 'Cargos'),
-        ('Jeans', 'Jeans'),
-        ('Shorts', 'Shorts'),
-        ('Pants', 'Pants'),
-    ]
-
+    
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    image = CloudinaryField(
-        'image', 
-        folder='product_images', 
-        blank=True, 
-        null=True,
-        transformation=[{'quality': 'auto:best'}]
-    )
-    stock = models.PositiveIntegerField(default=0)
-    size = models.CharField(max_length=5, choices=SIZE_CHOICES)
-    color = models.CharField(max_length=20, choices=COLOR_CHOICES)
-    created_at = models.DateTimeField(auto_now_add=True)
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='T-Shirts')
+    note_type = models.CharField(max_length=5, choices=NOTE_TYPES)
     
-    def delete(self, *args, **kwargs):
-        """Override delete method to remove image from Cloudinary"""
-        if self.image:
-            try:
-                # Delete image from Cloudinary before deleting model
-                uploader.destroy(self.image.public_id)
-            except Exception as e:
-                # Handle errors but don't block deletion
-                print(f"Error deleting Cloudinary file: {e}")
-        super().delete(*args, **kwargs)
+    class Meta:
+        ordering = ['name']
+        unique_together = ['name', 'note_type']
+    
+    def __str__(self):
+        return f"{self.name} ({self.get_note_type_display()})"
+
+
+class Product(models.Model):
+    """Perfume product model."""
+    name = models.CharField(max_length=150)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    description = models.TextField(blank=True)
+    top_notes = models.ManyToManyField(
+        FragranceNote, 
+        related_name='products_as_top',
+        limit_choices_to={'note_type': 'top'},
+        blank=True
+    )
+    heart_notes = models.ManyToManyField(
+        FragranceNote,
+        related_name='products_as_heart',
+        limit_choices_to={'note_type': 'heart'},
+        blank=True
+    )
+    base_notes = models.ManyToManyField(
+        FragranceNote,
+        related_name='products_as_base',
+        limit_choices_to={'note_type': 'base'},
+        blank=True
+    )
+    volume_ml = models.PositiveIntegerField(help_text="Volume in milliliters (ml)")
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+    @property
+    def primary_image(self):
+        """Get the primary image for the product."""
+        primary = self.images.filter(is_primary=True).first()
+        if primary:
+            return primary.image
+        # Fallback to first image if no primary is set
+        first_image = self.images.first()
+        return first_image.image if first_image else None
+
+
+class ProductImage(models.Model):
+    """Model for product images."""
+    product = models.ForeignKey(Product, related_name='images', on_delete=models.CASCADE)
+    image = CloudinaryField(
+        'image',
+        folder='product_images',
+        transformation=[{'quality': 'auto:best'}]
+    )
+    is_primary = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-is_primary', '-created_at']
+
+    def save(self, *args, **kwargs):
+        """Override save to handle primary image logic."""
+        # If this is the first image for the product, make it primary
+        if not self.pk and not self.product.images.exists():
+            self.is_primary = True
+        
+        # If this image is being set as primary, update others
+        if self.is_primary:
+            # Exclude current instance if it exists
+            other_images = self.product.images.exclude(pk=self.pk) if self.pk else self.product.images.all()
+            other_images.update(is_primary=False)
+        
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Delete Cloudinary image when deleting the product image."""
+        # If deleting primary image, set another image as primary
+        if self.is_primary and self.product.images.exclude(pk=self.pk).exists():
+            next_image = self.product.images.exclude(pk=self.pk).first()
+            next_image.is_primary = True
+            next_image.save()
+        
+        # Delete the image from Cloudinary
+        if self.image:
+            try:
+                uploader.destroy(self.image.public_id)
+            except Exception as e:
+                logger.exception("Error deleting Cloudinary file for product image %s: %s", self.pk, e)
+        super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"Image for {self.product.name} ({'Primary' if self.is_primary else 'Secondary'})"
