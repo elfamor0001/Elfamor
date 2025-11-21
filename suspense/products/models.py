@@ -32,6 +32,7 @@ class Product(models.Model):
     """Perfume product model."""
     name = models.CharField(max_length=150)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     description = models.TextField(blank=True)
     
     # Add stock field

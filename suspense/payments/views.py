@@ -144,13 +144,15 @@ def create_order(request):
                         })
                         continue
                     
-                    item_total = product.price * quantity
+                    # Use discounted_price if available and less than price, otherwise use price
+                    effective_price = product.discounted_price if (product.discounted_price and product.discounted_price < product.price) else product.price
+                    item_total = effective_price * quantity
                     total_amount += item_total
 
                     order_items.append({
                         'product': product,
                         'quantity': quantity,
-                        'price': product.price
+                        'price': effective_price
                     })
                 except Product.DoesNotExist:
                     logger.error(f"Product not found: {item['product_id']}")

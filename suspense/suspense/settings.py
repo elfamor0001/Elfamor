@@ -7,7 +7,7 @@ import cloudinary.api
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+FRONTEND_URL = 'http://localhost:5173'
 AUTH_USER_MODEL = 'accounts.CustomUser'
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -211,3 +211,8 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')
 RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET')
+
+
+# settings.py
+BREVO_API_KEY = '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'
+BREVO_SMS_SENDER = 'Elfamor'  # Must be approved in Brevo
