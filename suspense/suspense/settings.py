@@ -117,16 +117,29 @@ LOGGING = {
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST'),
-        'PORT': config('DB_PORT', '5432'),
+if os.getenv('PA_DB'):  # running on PythonAnywhere
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': config('DB_NAME'),
+            'USER': config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST': config('DB_HOST'),
+            'PORT': '3306',
+        }
     }
-}
+else:  # local development with PostgreSQL
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config('LOCAL_DB_NAME', default='your_local_db_name'),
+            'USER': config('LOCAL_DB_USER', default='your_username'),
+            'PASSWORD': config('LOCAL_DB_PASSWORD', default='your_password'),
+            'HOST': config('LOCAL_DB_HOST', default='localhost'),
+            'PORT': config('LOCAL_DB_PORT', default='5432'),
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

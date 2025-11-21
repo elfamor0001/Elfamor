@@ -33,6 +33,13 @@ class Product(models.Model):
     name = models.CharField(max_length=150)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField(blank=True)
+    
+    # Add stock field
+    stock = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of items available in inventory"
+    )
+    
     top_notes = models.ManyToManyField(
         FragranceNote, 
         related_name='products_as_top',
@@ -58,6 +65,33 @@ class Product(models.Model):
         return self.name
 
     @property
+    def is_in_stock(self):
+        """Check if product is in stock."""
+        return self.stock > 0
+
+    @property
+    def stock_status(self):
+        """Get human-readable stock status."""
+        if self.stock == 0:
+            return "Out of Stock"
+        elif self.stock <= 10:
+            return f"Low Stock ({self.stock} remaining)"
+        else:
+            return "In Stock"
+
+    def reduce_stock(self, quantity=1):
+        """Reduce stock by specified quantity."""
+        if quantity > self.stock:
+            raise ValueError(f"Cannot reduce stock by {quantity}. Only {self.stock} available.")
+        self.stock -= quantity
+        self.save()
+
+    def increase_stock(self, quantity=1):
+        """Increase stock by specified quantity."""
+        self.stock += quantity
+        self.save()
+
+    @property
     def primary_image(self):
         """Get the primary image for the product."""
         primary = self.images.filter(is_primary=True).first()
@@ -66,7 +100,6 @@ class Product(models.Model):
         # Fallback to first image if no primary is set
         first_image = self.images.first()
         return first_image.image if first_image else None
-
 
 class ProductImage(models.Model):
     """Model for product images."""
