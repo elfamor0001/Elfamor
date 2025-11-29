@@ -15,6 +15,45 @@ from .models import Order
 
 logger = logging.getLogger(__name__)
 
+import hmac
+import hashlib
+
+def verify_shiprocket_webhook_signature(request, payload):
+    """
+    Verify Shiprocket webhook signature for security
+    """
+    try:
+        # Get signature from header
+        signature = request.headers.get('X-Shiprocket-Signature')
+        
+        if not signature:
+            logger.warning("Shiprocket Webhook: Missing signature header")
+            return False
+        
+        # Get webhook secret from settings
+        webhook_secret = getattr(settings, 'SHIPROCKET_WEBHOOK_SECRET', '')
+        
+        if not webhook_secret:
+            logger.warning("Shiprocket Webhook: No webhook secret configured")
+            return True  # Continue without verification if no secret set
+        
+        # Generate expected signature
+        expected_signature = hmac.new(
+            webhook_secret.encode('utf-8'),
+            request.body,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Compare signatures
+        if not hmac.compare_digest(expected_signature, signature):
+            logger.error("Shiprocket Webhook: Invalid signature")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Shiprocket Webhook signature verification error: {str(e)}")
+        return False
 
 class WebhookLogger:
     """Helper class for structured webhook logging"""
@@ -56,7 +95,7 @@ def handle_shipment_generated(webhook_data):
             return False, 'Missing order_id'
         
         try:
-            order = Order.objects.get(id=order_id)
+            order = Order.objects.get(shiprocket_order_id=str(order_id))
         except Order.DoesNotExist:
             WebhookLogger.log_error('shipment_generated', f'Order not found: {order_id}')
             return False, f'Order {order_id} not found'
@@ -130,7 +169,7 @@ def handle_shipment_status(webhook_data):
             return False, 'Missing order_id'
         
         try:
-            order = Order.objects.get(id=order_id)
+            order = Order.objects.get(shiprocket_order_id=str(order_id))
         except Order.DoesNotExist:
             WebhookLogger.log_error('shipment_status', f'Order not found: {order_id}')
             return False, f'Order {order_id} not found'
@@ -217,7 +256,7 @@ def handle_shipment_delivered(webhook_data):
             return False, 'Missing order_id'
         
         try:
-            order = Order.objects.get(id=order_id)
+            order = Order.objects.get(shiprocket_order_id=str(order_id))
         except Order.DoesNotExist:
             WebhookLogger.log_error('shipment_delivered', f'Order not found: {order_id}')
             return False, f'Order {order_id} not found'
@@ -303,7 +342,7 @@ def handle_shipment_cancelled(webhook_data):
             return False, 'Missing order_id'
         
         try:
-            order = Order.objects.get(id=order_id)
+            order = Order.objects.get(shiprocket_order_id=str(order_id))
         except Order.DoesNotExist:
             WebhookLogger.log_error('shipment_cancelled', f'Order not found: {order_id}')
             return False, f'Order {order_id} not found'
@@ -348,90 +387,61 @@ def handle_shipment_cancelled(webhook_data):
 @require_http_methods(["POST"])
 def shiprocket_webhook(request):
     """
-    Shiprocket Webhook Endpoint
-    Receives real-time tracking updates from Shiprocket
-    
-    POST /webhooks/shiprocket/
-    
-    Supported Events:
-    - shipment_generated
-    - shipment_status
-    - shipment_delivered
-    - shipment_cancelled
+    FINAL Shiprocket webhook handler
+    Compatible with real Shiprocket webhook payloads
     """
-    
     try:
-        # Parse JSON payload
+        # Parse payload
         try:
             payload = json.loads(request.body)
         except json.JSONDecodeError:
-            logger.error("Shiprocket Webhook: Invalid JSON in request body")
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Invalid JSON format'
-            }, status=400)
-        
-        # Log received webhook
-        event_type = payload.get('event')
-        webhook_data = payload.get('data', {})
-        
-        WebhookLogger.log_received(event_type, webhook_data)
-        
-        # Validate required fields
+            logger.error("Invalid JSON")
+            return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
+
+        # Shiprocket sends all fields in the root level
+        event_type = payload.get("event")
+        order_id = payload.get("order_id")
+
+        # Debug log
+        logger.info(f"Shiprocket Webhook Received: event={event_type}, order_id={order_id}")
+
+        # Basic validation
         if not event_type:
-            logger.error("Shiprocket Webhook: Missing 'event' field")
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Missing required field: event'
-            }, status=400)
-        
-        if not webhook_data.get('order_id'):
-            logger.error(f"Shiprocket Webhook ({event_type}): Missing order_id in data")
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Missing required field: data.order_id'
-            }, status=400)
-        
-        # Route to appropriate handler based on event type
-        event_handlers = {
-            'shipment_generated': handle_shipment_generated,
-            'shipment_status': handle_shipment_status,
-            'shipment_delivered': handle_shipment_delivered,
-            'shipment_cancelled': handle_shipment_cancelled,
+            return JsonResponse({"status": "error", "message": "Missing event"}, status=400)
+
+        if not order_id:
+            return JsonResponse({"status": "error", "message": "Missing order_id"}, status=400)
+
+        # Map real Shiprocket events → your handlers
+        event_map = {
+            "AWB_GENERATED": handle_shipment_generated,
+            "ORDER_STATUS_UPDATE": handle_shipment_status,
+            "OUT_FOR_DELIVERY": handle_shipment_status,
+            "DELIVERED": handle_shipment_delivered,
+            "CANCELED": handle_shipment_cancelled,
         }
-        
-        handler = event_handlers.get(event_type)
-        
+
+        handler = event_map.get(event_type)
+
         if not handler:
-            logger.warning(f"Shiprocket Webhook: Unknown event type: {event_type}")
+            logger.warning(f"Unhandled event type: {event_type}")
             return JsonResponse({
-                'status': 'warning',
-                'message': f'Unknown event type: {event_type}'
-            }, status=202)  # Accept but warn
-        
-        # Execute handler
-        success, message = handler(webhook_data)
-        
-        if success:
-            return JsonResponse({
-                'status': 'success',
-                'message': message,
-                'event': event_type
-            }, status=200)
-        else:
-            return JsonResponse({
-                'status': 'error',
-                'message': message,
-                'event': event_type
-            }, status=400)
-    
-    except Exception as e:
-        logger.exception(f"Shiprocket Webhook: Unhandled exception: {str(e)}")
+                "status": "ignored",
+                "message": f"Unhandled event: {event_type}"
+            }, status=202)
+
+        # Process webhook
+        success, message = handler(payload)
+
         return JsonResponse({
-            'status': 'error',
-            'message': 'Internal server error',
-            'error': str(e) if settings.DEBUG else 'Server error'
-        }, status=500)
+            "status": "success" if success else "error",
+            "message": message,
+            "event": event_type
+        }, status=200 if success else 400)
+
+    except Exception as e:
+        logger.exception("Unhandled webhook exception")
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
 
 @csrf_exempt

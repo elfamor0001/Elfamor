@@ -719,58 +719,102 @@ import threading
 
 def create_shiprocket_order_async(order_id):
     """
-    Create Shiprocket order asynchronously (non-blocking)
+    Create Shiprocket order asynchronously (non-blocking) - FIXED VERSION
     """
     try:
+        # Small delay to ensure main transaction is committed
+        import time
+        time.sleep(2)
+        
         order = Order.objects.get(id=order_id)
+        logger.info(f"🔄 Starting Shiprocket order creation for Django order {order_id}")
+        
         # Determine cheapest courier before creating Shiprocket order
-        try:
-            shipping_info = order.shipping_info or {}
-            delivery_pincode = shipping_info.get('pincode')
-            # compute total weight from order items
-            total_weight = sum([getattr(item.product, 'weight', getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)) * item.quantity for item in order.items.all()])
-            success_q, shipping_data = calculate_shipping_charges_helper(
+        shipping_info = order.shipping_info or {}
+        delivery_pincode = shipping_info.get('pincode')
+        
+        # Calculate total weight from order items
+        total_weight = sum([
+            getattr(item.product, 'weight', getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)) * item.quantity 
+            for item in order.items.all()
+        ])
+        
+        preferred_courier = None
+        if delivery_pincode:
+            success, shipping_data = calculate_shipping_charges_helper(
                 pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
                 delivery_postcode=delivery_pincode,
                 weight=total_weight,
-                # length=getattr(settings, 'PERFUME_BOTTLE_LENGTH', 8),
-                # breadth=getattr(settings, 'PERFUME_BOTTLE_BREADTH', 10),
-                # height=getattr(settings, 'PERFUME_BOTTLE_HEIGHT', 15)
             )
-            preferred_courier = None
-            if success_q:
+            if success:
                 preferred_courier = shipping_data.get('cheapest_courier')
-                logger.info(f"Async shipment: chosen cheapest courier {preferred_courier} for order {order_id}")
+                logger.info(f"✅ Using preferred courier: {preferred_courier} for order {order_id}")
             else:
-                logger.warning(f"Async shipment: could not determine cheapest courier for order {order_id}: {shipping_data}")
+                logger.warning(f"⚠️ Could not determine preferred courier: {shipping_data}")
+        else:
+            logger.warning(f"⚠️ No delivery pincode for order {order_id}")
 
-        except Exception as e:
-            logger.warning(f"Async shipment: error computing courier for order {order_id}: {e}")
-            preferred_courier = None
-
+        # Create Shiprocket order
         success, response = create_shiprocket_order_from_django_order(order, preferred_courier=preferred_courier)
 
-        if success:
-            # Persist Shiprocket response and chosen courier
-            order.shiprocket_order_id = response.get('order_id')
-            if preferred_courier:
-                order.shipping_partner = preferred_courier
-            # store shipment_id inside tracking_data JSON to avoid DB migrations
-            tracking = order.tracking_data or {}
-            if response.get('shipment_id'):
-                tracking['shipment_id'] = response.get('shipment_id')
-            tracking['shiprocket_raw'] = response.get('response') if isinstance(response.get('response'), dict) else response.get('response')
-            order.tracking_data = tracking
-            order.shipping_status = 'processing'
-            order.save()
-            logger.info(f"Shiprocket order created for order {order_id}: {order.shiprocket_order_id}")
-        else:
-            logger.error(f"Failed to create Shiprocket order for order {order_id}: {response}")
-            order.shipping_status = 'failed'
-            order.save()
-    except Exception as e:
-        logger.error(f"Error in async Shiprocket order creation: {str(e)}")
+        logger.info(f"📦 Shiprocket creation result - Success: {success}, Response: {response}")
 
+        if success:
+            # ✅ FIXED: Extract IDs from response
+            shiprocket_order_id = response.get('order_id')
+            shipment_id = response.get('shipment_id')
+            
+            logger.info(f"✅ Shiprocket IDs - Order: {shiprocket_order_id}, Shipment: {shipment_id}")
+            
+            if shiprocket_order_id:
+                # Update the order with Shiprocket information
+                order.shiprocket_order_id = shiprocket_order_id
+                
+                if preferred_courier:
+                    order.shipping_partner = preferred_courier
+                
+                # Store tracking data
+                tracking = order.tracking_data or {}
+                if shipment_id:
+                    tracking['shipment_id'] = shipment_id
+                
+                # Store the full response for reference
+                tracking['shiprocket_raw_response'] = response
+                order.tracking_data = tracking
+                order.shipping_status = 'processing'
+                order.save()
+                
+                logger.info(f"✅ SUCCESS: Shiprocket order created for Django order {order_id}")
+                logger.info(f"✅ Shiprocket Order ID: {shiprocket_order_id}")
+                logger.info(f"✅ Shipment ID: {shipment_id}")
+                logger.info(f"✅ Shipping Partner: {preferred_courier}")
+                
+            else:
+                logger.error(f"❌ Shiprocket order ID is None in response: {response}")
+                order.shipping_status = 'failed'
+                order.tracking_data = {'error': 'No order_id in response', 'response': response}
+                order.save()
+        else:
+            logger.error(f"❌ Failed to create Shiprocket order for order {order_id}: {response}")
+            order.shipping_status = 'failed'
+            order.tracking_data = {'error': 'Shiprocket creation failed', 'response': response}
+            order.save()
+            
+    except Order.DoesNotExist:
+        logger.error(f"❌ Order {order_id} does not exist in database")
+    except Exception as e:
+        logger.error(f"❌ Critical error in Shiprocket order creation: {str(e)}", exc_info=True)
+        # Update order status to indicate failure
+        try:
+            order = Order.objects.get(id=order_id)
+            order.shipping_status = 'failed'
+            order.tracking_data = {'error': str(e)}
+            order.save()
+        except:
+            pass
+
+
+        
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_tracking(request, order_id):
@@ -1033,61 +1077,6 @@ def order_shipping_status(request, order_id):
 from .shiprocket_service import calculate_shipping  # Import the helper function
 from django.conf import settings
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def calculate_shipping(request):
-    """
-    Calculate shipping charges based on delivery pincode
-    """
-    try:
-        delivery_pincode = request.data.get('pincode')
-        cart_items = request.data.get('items', [])
-        
-        if not delivery_pincode:
-            return Response(
-                {'error': 'Pincode is required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Calculate total weight from cart items
-        total_weight = settings.DEFAULT_PACKAGE_WEIGHT * len(cart_items)
-        
-        # Calculate shipping charges using the helper function
-        success, shipping_data = calculate_shipping(
-            pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
-            delivery_postcode=delivery_pincode,
-            weight=total_weight,
-            length=settings.PERFUME_BOTTLE_LENGTH,
-            breadth=settings.PERFUME_BOTTLE_BREADTH,
-            height=settings.PERFUME_BOTTLE_HEIGHT
-        )
-        
-        if success:
-            return Response({
-                'success': True,
-                'shipping_charge': shipping_data['cheapest_rate'],
-                'courier': shipping_data['cheapest_courier'],
-                'estimated_days': shipping_data['estimated_days'],
-                'available_couriers': shipping_data['all_couriers'][:5]  # Top 5 cheapest
-            })
-        else:
-            # Return error instead of fallback
-            logger.error(f"Shipping calculation failed: {shipping_data}")
-            return Response({
-                'success': False,
-                'error': f'Unable to calculate shipping: {shipping_data}',
-                'shipping_charge': 0,
-                'courier': 'Service unavailable',
-                'estimated_days': 'N/A'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-    except Exception as e:
-        logger.error(f"Shipping calculation error: {str(e)}")
-        return Response(
-            {'error': f'Shipping calculation failed: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-    
 from rest_framework.throttling import UserRateThrottle
 
 class PaymentThrottle(UserRateThrottle):

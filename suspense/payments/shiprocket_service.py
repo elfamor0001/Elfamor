@@ -224,30 +224,41 @@ class ShiprocketService:
                 timeout=10
             )
             
-            logger.info(f"Shiprocket create order response status: {response.status_code}")
+            logger.info(f"Shiprocket API Response Status: {response.status_code}")
+            logger.info(f"Shiprocket API Response Body: {response.text}")
             
             if response.status_code in [200, 201]:
                 data = response.json()
+                logger.info(f"Parsed Shiprocket response: {json.dumps(data, indent=2)}")
+                
+                # ✅ FIXED: Check the correct success conditions
                 if data.get('status_code') == 1 or data.get('status') == 1:  # Success
+                    # ✅ FIXED: Extract order_id and shipment_id from root level
+                    order_id = data.get('order_id')
+                    shipment_id = data.get('shipment_id')
+                    
+                    logger.info(f"✅ Successfully extracted - Order ID: {order_id}, Shipment ID: {shipment_id}")
+                    
                     result = {
-                        'order_id': data.get('data', {}).get('order_id'),
-                        'shipment_id': data.get('data', {}).get('shipment_id'),
-                        'response': data
+                        'order_id': order_id,
+                        'shipment_id': shipment_id,
+                        'status': data.get('status'),
+                        'status_code': data.get('status_code'),
+                        'response': data  # Include full response for debugging
                     }
-                    logger.info(f"Shiprocket order created successfully: {result['order_id']}")
+                    logger.info(f"✅ Shiprocket order created successfully: {result}")
                     return True, result
                 else:
                     error_msg = data.get('message', 'Order creation failed')
-                    logger.error(f"Shiprocket order creation error: {error_msg}")
+                    logger.error(f"❌ Shiprocket order creation error: {error_msg}")
                     return False, error_msg
             else:
-                logger.error(f"Shiprocket order creation failed: {response.status_code} - {response.text}")
+                logger.error(f"❌ Shiprocket order creation failed: {response.status_code} - {response.text}")
                 return False, f"API error: {response.status_code}"
                 
         except Exception as e:
-            logger.error(f"Error creating Shiprocket order: {str(e)}")
+            logger.error(f"❌ Error creating Shiprocket order: {str(e)}")
             return False, str(e)
-
     def get_tracking(self, order_id: int) -> Tuple[bool, Optional[Dict]]:
         """
         Get tracking information for a Shiprocket order

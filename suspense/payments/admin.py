@@ -5,6 +5,7 @@ from django.db.models import Q
 from .models import Order, OrderItem, Payment
 from .shiprocket_service import ShiprocketService, create_shiprocket_order_from_django_order
 import logging
+from django.utils.safestring import mark_safe
 
 logger = logging.getLogger(__name__)
 
@@ -34,51 +35,171 @@ class OrderAdmin(admin.ModelAdmin):
         'razorpay_order_id', 
         'user_email', 
         'amount_display', 
-        'subtotal',
-        'shipment_charge',
-        'total_amount',
+        'subtotal_display',
+        'shipment_charge_display',
+        'total_amount_display',
         'free_shipping',
         'status_badge', 
         'shipping_status_badge',
+        'tracking_id',
+        'shipping_partner',
         'created_at', 
         'payment_status'
     ]
-    list_filter = ['status', 'shipping_status', 'created_at', 'currency']
-    search_fields = ['razorpay_order_id', 'user__email', 'user__username', 'tracking_id']
-    readonly_fields = ['razorpay_order_id', 'amount', 'currency', 'created_at', 'updated_at', 'shiprocket_order_id', 'tracking_id', 'shipping_partner', 'tracking_url', 'shipping_label_url', 'subtotal', 'shipment_charge', 'total_amount', 'free_shipping']
-    inlines = [OrderItemInline, PaymentInline]
-    date_hierarchy = 'created_at'
-    list_per_page = 20
+    
+    list_filter = [
+        'status', 
+        'shipping_status', 
+        'free_shipping',
+        'shipping_partner',
+        'created_at', 
+        'currency'
+    ]
+    
+    search_fields = [
+        'razorpay_order_id', 
+        'user__email', 
+        'user__username', 
+        'tracking_id',
+        'awb_number',
+        'courier_name',
+        'shipping_partner'
+    ]
+    
+    readonly_fields = [
+        'razorpay_order_id', 'amount', 'currency', 'created_at', 'updated_at', 
+        'shiprocket_order_id', 'tracking_id', 'shipping_partner', 'tracking_url', 
+        'shipping_label_url', 'subtotal', 'shipment_charge', 'total_amount', 
+        'free_shipping', 'awb_number', 'courier_name', 'delivered_at', 
+        'tracking_data_display', 'shipping_info_display'
+    ]
     
     fieldsets = (
-    ('Order Information', {
-        'fields': (
-            'user',
-            'razorpay_order_id',
-            'amount',
-            'currency',
-            'status',
-            'shipping_info'
-        )
-    }),
-    ('Shiprocket Shipping Details', {
-        'fields': (
-            'shiprocket_order_id',
-            'shipping_status',
-            'tracking_id',
-            'shipping_partner',
-            'tracking_url',
-            'shipping_label_url',
-        ),
-        'classes': ('wide',)
-    }),
-    ('Timestamps', {
-        'fields': ('created_at', 'updated_at'),
-        'classes': ('wide',)
-    }),
-)
+        ('Order Information', {
+            'fields': (
+                'user',
+                'razorpay_order_id',
+                'amount',
+                'currency',
+                'status',
+                'shipping_info_display'
+            )
+        }),
+        ('Shipping Calculation', {
+            'fields': (
+                'subtotal',
+                'shipment_charge',
+                'free_shipping',
+                'total_amount',
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Shiprocket Shipping Details', {
+            'fields': (
+                'shiprocket_order_id',
+                'shipping_status',
+                'tracking_id',
+                'shipping_partner',
+                'tracking_url',
+                'shipping_label_url',
+            )
+        }),
+        ('Advanced Shipping Information', {
+            'fields': (
+                'awb_number',
+                'courier_name',
+                'delivered_at',
+                'tracking_data_display',
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
 
-    
+    # Add the display methods for the new fields
+    def subtotal_display(self, obj):
+        return f"₹{obj.subtotal}"
+    subtotal_display.short_description = 'Subtotal'
+
+    def shipment_charge_display(self, obj):
+        return f"₹{obj.shipment_charge}"
+    shipment_charge_display.short_description = 'Shipping Charge'
+
+    def total_amount_display(self, obj):
+        return f"₹{obj.total_amount}"
+    total_amount_display.short_description = 'Total Amount'
+
+    def shipping_info_display(self, obj):
+        """Display shipping info in a formatted way"""
+        if not obj.shipping_info:
+            return "No shipping information provided"
+        
+        shipping_info = obj.shipping_info
+        html = "<div style='padding: 10px; background-color: #f8f9fa; border-radius: 5px; color:black'>"
+        
+        fields = [
+            ('Full Name', shipping_info.get('full_name')),
+            ('Email', shipping_info.get('email')),
+            ('Phone', shipping_info.get('phone')),
+            ('Address Line 1', shipping_info.get('address_line1')),
+            ('Address Line 2', shipping_info.get('address_line2')),
+            ('City', shipping_info.get('city')),
+            ('State', shipping_info.get('state')),
+            ('Postal Code', shipping_info.get('postal_code')),
+            ('Country', shipping_info.get('country')),
+        ]
+        
+        for label, value in fields:
+            if value:
+                html += f"<p><strong>{label}:</strong> {value}</p>"
+        
+        html += "</div>"
+        return mark_safe(html)
+
+    shipping_info_display.short_description = 'Shipping Information'
+
+    def tracking_data_display(self, obj):
+        """Display tracking data in a formatted way"""
+        if not obj.tracking_data:
+            return "No tracking data available"
+        
+        tracking_data = obj.tracking_data
+        html = "<div style='padding: 10px; background-color: #f8f9fa; color:black; border-radius: 5px; max-height: 300px; overflow-y: auto;'>"
+        
+        if isinstance(tracking_data, dict):
+            for key, value in tracking_data.items():
+                if key.lower() != 'tracking_events':
+                    html += f"<p><strong>{key.replace('_', ' ').title()}:</strong> {value}</p>"
+            
+            tracking_events = tracking_data.get('tracking_events') or tracking_data.get('events') or tracking_data.get('history', [])
+            if tracking_events and isinstance(tracking_events, list):
+                html += "<h4 style='margin-top: 15px; margin-bottom: 10px;'>Tracking History:</h4>"
+                html += "<div style='border-left: 2px solid #007bff; padding-left: 15px;'>"
+                
+                for event in tracking_events[-10:]:
+                    if isinstance(event, dict):
+                        date = event.get('date', event.get('timestamp', 'Unknown date'))
+                        status = event.get('status', event.get('description', 'Unknown status'))
+                        location = event.get('location', event.get('city', ''))
+                        
+                        html += f"""
+                        <div style='margin-bottom: 10px; padding: 8px; background: white; border-radius: 4px;'>
+                            <strong>{status}</strong><br>
+                            <small>Date: {date}</small>
+                            {f"<br><small>Location: {location}</small>" if location else ""}
+                        </div>
+                        """
+                
+                html += "</div>"
+        
+        html += "</div>"
+        return mark_safe(html)
+
+    tracking_data_display.short_description = 'Tracking Data'
+
     def user_email(self, obj):
         return obj.user.email
     user_email.short_description = 'User Email'
@@ -92,15 +213,24 @@ class OrderAdmin(admin.ModelAdmin):
     def status_badge(self, obj):
         status_colors = {
             'created': 'blue',
-            'attempted': 'orange',
+            'attempted': 'orange', 
             'paid': 'green',
             'failed': 'red',
             'cancelled': 'gray',
         }
-        color = status_colors.get(obj.status, 'blue')
+        # Get the status value safely
+        status = getattr(obj, 'status', 'created')
+        color = status_colors.get(status, 'blue')  # Default to blue if status not found
+        
+        # Safely get the display value
+        try:
+            status_display = obj.get_status_display().upper()
+        except (AttributeError, ValueError):
+            status_display = status.upper()
+            
         return format_html(
             '<span style="background-color: {}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">{}</span>',
-            color, obj.get_status_display().upper()
+            color, status_display
         )
     status_badge.short_description = 'Payment Status'
     
@@ -117,29 +247,48 @@ class OrderAdmin(admin.ModelAdmin):
             'failed': 'darkred',
             'returned': 'purple',
         }
-        color = status_colors.get(obj.shipping_status, 'lightgray')
+        # Get the shipping_status value safely
+        shipping_status = getattr(obj, 'shipping_status', 'pending')
+        color = status_colors.get(shipping_status, 'lightgray')  # Default to lightgray if status not found
+        
+        # Safely get the display value
+        try:
+            status_display = obj.get_shipping_status_display().upper() if shipping_status else 'N/A'
+        except (AttributeError, ValueError):
+            status_display = shipping_status.upper() if shipping_status else 'N/A'
+            
         return format_html(
             '<span style="background-color: {}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">{}</span>',
-            color, obj.get_shipping_status_display().upper() if obj.shipping_status else 'N/A'
+            color, status_display
         )
     shipping_status_badge.short_description = 'Shipping Status'
     shipping_status_badge.admin_order_field = 'shipping_status'
     
     def payment_status(self, obj):
-        if hasattr(obj, 'payment'):
-            status_colors = {
-                'created': 'blue',
-                'authorized': 'orange',
-                'captured': 'green',
-                'refunded': 'purple',
-                'failed': 'red',
-            }
-            color = status_colors.get(obj.payment.status, 'blue')
-            return format_html(
-                '<span style="background-color: {}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">{}</span>',
-                color, obj.payment.get_status_display().upper()
-            )
-        return format_html('<span style="color: gray;">No Payment</span>')
+        try:
+            if hasattr(obj, 'payment') and obj.payment:
+                status_colors = {
+                    'created': 'blue',
+                    'authorized': 'orange',
+                    'captured': 'green',
+                    'refunded': 'purple',
+                    'failed': 'red',
+                }
+                payment_status = getattr(obj.payment, 'status', 'created')
+                color = status_colors.get(payment_status, 'blue')
+                
+                try:
+                    status_display = obj.payment.get_status_display().upper()
+                except (AttributeError, ValueError):
+                    status_display = payment_status.upper()
+                    
+                return format_html(
+                    '<span style="background-color: {}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">{}</span>',
+                    color, status_display
+                )
+            return format_html('<span style="color: gray;">No Payment</span>')
+        except Exception as e:
+            return format_html('<span style="color: gray;">Error: {}</span>', str(e))
     payment_status.short_description = 'Payment Status'
 
     # Custom actions for Shiprocket management
@@ -297,7 +446,6 @@ class OrderAdmin(admin.ModelAdmin):
     
     cancel_shiprocket_order.short_description = "Cancel Shiprocket orders"
 
-
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
     list_display = ['order_id', 'product_name', 'quantity', 'price_display', 'item_total_display']
@@ -306,25 +454,25 @@ class OrderItemAdmin(admin.ModelAdmin):
     readonly_fields = ['order', 'product', 'quantity', 'price']
     
     def order_id(self, obj):
-        return obj.order.razorpay_order_id
+        return getattr(obj.order, 'razorpay_order_id', 'N/A')
     order_id.short_description = 'Order ID'
     order_id.admin_order_field = 'order__razorpay_order_id'
     
     def product_name(self, obj):
-        return obj.product.name
+        return getattr(obj.product, 'name', 'N/A')
     product_name.short_description = 'Product'
     product_name.admin_order_field = 'product__name'
     
     def price_display(self, obj):
-        return f"₹{obj.price}"
+        price = getattr(obj, 'price', 0) or 0
+        return f"₹{price}"
     price_display.short_description = 'Price'
     
     def item_total_display(self, obj):
-        if obj.price is None or obj.quantity is None:
-            return "₹0"
-        return f"₹{obj.quantity * obj.price}"
+        price = getattr(obj, 'price', 0) or 0
+        quantity = getattr(obj, 'quantity', 0) or 0
+        return f"₹{quantity * price}"
     item_total_display.short_description = 'Total'
-
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
     list_display = [

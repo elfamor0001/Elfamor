@@ -54,16 +54,27 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
-        FREE_SHIPPING_THRESHOLD = 3000
-        SHIPPING_CHARGE = 70
-        if self.subtotal >= FREE_SHIPPING_THRESHOLD:
-            self.shipment_charge = 0
-            self.free_shipping = True
-        else:
-            self.shipment_charge = SHIPPING_CHARGE
-            self.free_shipping = False
-        self.total_amount = self.subtotal + self.shipment_charge
+        # --- Calculate shipping charge ---
+        subtotal = self.subtotal or 0
+        amount = self.amount or 0
+
+        # shipping charge = amount - subtotal
+        shipping = amount - subtotal
+
+        # avoid negative values (edge cases)
+        if shipping < 0:
+            shipping = 0
+
+        self.shipment_charge = shipping
+
+        # free shipping flag
+        self.free_shipping = (shipping == 0)
+
+        # total amount = subtotal + shipping
+        self.total_amount = subtotal + shipping
+
         super().save(*args, **kwargs)
+
 
     def __str__(self):
         return f"Order {self.razorpay_order_id} - {self.user.email}"
