@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'products',
     'payments',
     'carts',
+    'contact',
     'corsheaders',
     'rest_framework',
     'cloudinary',
@@ -198,13 +199,13 @@ cloudinary.config(
 
 
 # Email settings
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')    
-EMAIL_HOST_PASSWORD=config('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = 'smtp.gmail.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# EMAIL_HOST_USER = config('EMAIL_HOST_USER')    
+# EMAIL_HOST_PASSWORD=config('EMAIL_HOST_PASSWORD')
+# DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 
 # Razorpay Configuration
@@ -213,6 +214,26 @@ RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')
 RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET')
 
 
-# settings.py
-BREVO_API_KEY = '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'
-BREVO_SMS_SENDER = 'Elfamor'  # Must be approved in Brevo
+
+# Add to your settings.py - Email Configuration Section
+
+# Brevo Configuration
+BREVO_API_KEY = config('BREVO_API_KEY')  # Your API key (starts with xkeysib-)
+BREVO_EMAIL_API_KEY = config("BREVO_EMAIL_API_KEY")
+ADMIN_EMAIL = config('ADMIN_EMAIL')
+BREVO_SMS_SENDER = config('BREVO_SMS_SENDER')  # Must be approved in Brevo --- IGNORE ---
+BREVO_EMAIL_SENDER = config('BREVO_EMAIL_SENDER')
+
+SHIPROCKET_EMAIL = config('SHIPROCKET_EMAIL')
+SHIPROCKET_PASSWORD = config('SHIPROCKET_PASSWORD')
+SHIPROCKET_PICKUP_PINCODE = config('SHIPROCKET_PICKUP_PINCODE')  # Your warehouse pincode
+
+# Perfume Product Specifications
+PERFUME_BOTTLE_WEIGHT = 0.2  # 200g in kg
+PERFUME_BOTTLE_LENGTH = 8    # cm
+PERFUME_BOTTLE_HEIGHT = 15   # cm  
+PERFUME_BOTTLE_BREADTH = 10  # cm
+
+# Package calculation rules
+PACKAGE_WEIGHT_BUFFER = 0.1  # 100g additional packaging weight
+MAX_BOTTLES_PER_PACKAGE = 3  # Maximum bottles in one package

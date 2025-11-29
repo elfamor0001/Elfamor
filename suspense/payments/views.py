@@ -3,6 +3,8 @@ import json
 import logging
 import hmac
 import hashlib
+import threading  # ✅ ADD THIS IMPORT
+from decimal import Decimal, ROUND_HALF_UP
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
@@ -18,7 +20,7 @@ from .serializers import (
     VerifyPaymentSerializer,
     PaymentSerializer
 )
-
+from .shiprocket_service import calculate_shipping_charges_helper, ShiprocketService, create_shiprocket_order_from_django_order  # ✅ FIXED IMPORT
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +59,23 @@ def handle_successful_payment(order, payment_data):
 
         # Clear user's cart after successful payment
         try:
-            from carts.models import Cart  # Import your cart model
+            from carts.models import Cart
             Cart.objects.filter(user=order.user).delete()
             logger.info(f"Cart cleared for user {order.user.id}")
         except Exception as cart_error:
             logger.warning(f"Could not clear cart: {str(cart_error)}")
+
+        # ✅ CREATE SHIPROCKET ORDER ASYNCHRONOUSLY
+        try:
+            if hasattr(settings, 'SHIPROCKET_EMAIL') and settings.SHIPROCKET_EMAIL:
+                thread = threading.Thread(target=create_shiprocket_order_async, args=(order.id,))
+                thread.daemon = True
+                thread.start()
+                logger.info(f"Shiprocket order creation initiated for order {order.id}")
+            else:
+                logger.warning("Shiprocket credentials not configured")
+        except Exception as shiprocket_error:
+            logger.error(f"Error initiating Shiprocket order creation: {str(shiprocket_error)}")
 
         logger.info(f"Payment processed successfully for order {order.id}")
 
@@ -81,18 +95,16 @@ def decrease_order_stock(order):
     Decrease stock for all products in the order
     """
     try:
-        order_items = order.items.all()  # Assuming related_name='items' for OrderItem
+        order_items = order.items.all()
         
         for item in order_items:
             product = item.product
             quantity = item.quantity
             
-            # Check if sufficient stock is available
             if product.stock < quantity:
                 logger.error(f"Insufficient stock for product {product.id}. Required: {quantity}, Available: {product.stock}")
                 raise ValueError(f"Insufficient stock for {product.name}")
             
-            # Decrease the stock
             old_stock = product.stock
             product.stock -= quantity
             product.save()
@@ -104,7 +116,6 @@ def decrease_order_stock(order):
     except Exception as e:
         logger.error(f"Error decreasing stock for order {order.id}: {str(e)}")
         raise e
-    
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -113,28 +124,32 @@ def create_order(request):
     if idempotency_key and Order.objects.filter(idempotency_key=idempotency_key).exists():
         return Response({'error': 'Duplicate request'}, status=status.HTTP_409_CONFLICT)
     
-    """
-    Step 2: Create Razorpay order with shipping info
-    """
     try:
         serializer = CreateOrderSerializer(data=request.data)
         if serializer.is_valid():
             items = serializer.validated_data['items']
             shipping_info = request.data.get('shipping_info', {})
+            delivery_pincode = shipping_info.get('pincode')
+            
+            if not delivery_pincode:
+                return Response(
+                    {'error': 'Delivery pincode is required for shipping calculation'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-            logger.info(f"Creating order for user {request.user.id} with {len(items)} items")
+            logger.info(f"Creating order for user {request.user.id} with delivery pincode: {delivery_pincode}")
 
-            # Calculate total amount and validate stock
-            total_amount = 0
-            order_items = []
+            # ✅ VALIDATE STOCK AVAILABILITY
             stock_validation_errors = []
+            order_items = []
+            subtotal = Decimal('0.00')
+            total_quantity = 0  # ✅ ADDED: Track total bottle count
 
             for item in items:
                 try:
                     product = Product.objects.get(id=item['product_id'])
                     quantity = item['quantity']
                     
-                    # ✅ VALIDATE STOCK AVAILABILITY
                     if product.stock < quantity:
                         stock_validation_errors.append({
                             'product_id': product.id,
@@ -144,16 +159,17 @@ def create_order(request):
                         })
                         continue
                     
-                    # Use discounted_price if available and less than price, otherwise use price
                     effective_price = product.discounted_price if (product.discounted_price and product.discounted_price < product.price) else product.price
-                    item_total = effective_price * quantity
-                    total_amount += item_total
-
+                    
                     order_items.append({
                         'product': product,
                         'quantity': quantity,
                         'price': effective_price
                     })
+                    
+                    subtotal += effective_price * quantity
+                    total_quantity += quantity  # ✅ ADDED: Sum all quantities
+                    
                 except Product.DoesNotExist:
                     logger.error(f"Product not found: {item['product_id']}")
                     return Response(
@@ -161,7 +177,6 @@ def create_order(request):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-            # Check if there were any stock validation errors
             if stock_validation_errors:
                 logger.error(f"Stock validation failed: {stock_validation_errors}")
                 return Response({
@@ -169,10 +184,76 @@ def create_order(request):
                     'details': stock_validation_errors
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Convert to paise (Razorpay expects amount in smallest currency unit)
-            amount_in_paise = int(total_amount * 100)
+            # ✅ FIXED: CALCULATE SHIPPING CHARGES WITH ACTUAL PERFUME BOTTLE SPECS
+            shipment_charge = 0
+            shipping_courier = "Calculating..."
+            
+            # ✅ FIXED: Use actual perfume bottle weight and dimensions
+            bottle_weight_kg = getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)  # 200g per bottle
+            packaging_buffer = getattr(settings, 'PACKAGE_WEIGHT_BUFFER', 0.1)  # 100g packaging
+            
+            # Calculate total weight based on actual bottle count
+            total_weight = (total_quantity * bottle_weight_kg) + packaging_buffer
+            
+            # Get package dimensions from settings
+            base_length = getattr(settings, 'PERFUME_BOTTLE_LENGTH', 8)
+            base_height = getattr(settings, 'PERFUME_BOTTLE_HEIGHT', 15)
+            base_breadth = getattr(settings, 'PERFUME_BOTTLE_BREADTH', 10)
+            
+            # ✅ FIXED: Scale dimensions dynamically based on bottle quantity (no limits)
+            # Strategy: Arrange bottles efficiently using optimal packaging dimensions
+            # For bottles arranged in grid: length and breadth scale with quantity, height stays constant
+            
+            if total_quantity == 1:
+                # Single bottle
+                package_length = base_length
+                package_height = base_height
+                package_breadth = base_breadth
+            else:
+                # Multiple bottles: arrange in optimal grid to minimize wasted space
+                # Use square-ish layout: calculate optimal rows and columns
+                import math
+                
+                # Calculate optimal number of bottles per row
+                # Target: arrange in as close to square pattern as possible (width ≈ depth)
+                bottles_per_row = math.ceil(math.sqrt(total_quantity))
+                bottles_per_column = math.ceil(total_quantity / bottles_per_row)
+                
+                # Scale dimensions: length and breadth scale with bottle count, height stays same
+                package_length = base_length * bottles_per_row
+                package_breadth = base_breadth * bottles_per_column
+                package_height = base_height
+            
+            logger.info(f"Shipping calculation: {total_quantity} bottles, "
+                       f"weight: {total_weight:.2f}kg, "
+                       f"dimensions: {package_length}×{package_height}×{package_breadth}cm "
+                       f"(arranged optimally with no quantity limits)")
 
-            # Validate amount (Razorpay requires min 1 INR)
+            # Calculate shipping charges with correct parameters
+            success, shipping_data = calculate_shipping_charges_helper(
+                pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
+                delivery_postcode=delivery_pincode,
+                weight=total_weight,
+                # length=package_length,
+                # breadth=package_breadth,
+                # height=package_height
+            )
+            
+            if success:
+                shipment_charge = Decimal(str(shipping_data['cheapest_rate']))
+                shipping_courier = shipping_data['cheapest_courier']
+                logger.info(f"Dynamic shipping calculated: ₹{shipment_charge} via {shipping_courier}")
+            else:
+                logger.error(f"Shipping calculation failed: {shipping_data}")
+                return Response(
+                    {'error': f'Unable to calculate shipping charges for pincode {delivery_pincode}. Please try again or contact support.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            total_amount = subtotal + shipment_charge
+            # Convert to paise with proper rounding (ROUND_HALF_UP) to avoid truncation differences
+            amount_in_paise = int((total_amount * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
             if amount_in_paise < 100:
                 return Response(
                     {'error': 'Amount must be at least 1 INR'},
@@ -184,22 +265,30 @@ def create_order(request):
                 razorpay_order = client.order.create({
                     'amount': amount_in_paise,
                     'currency': 'INR',
-                    'payment_capture': 1,  # Auto capture payment
+                    'payment_capture': 1,
                     'notes': {
                         'shipping_info': json.dumps(shipping_info),
-                        'user_id': str(request.user.id)
+                        'user_id': str(request.user.id),
+                        'shipment_charge': str(shipment_charge),
+                        'shipping_courier': shipping_courier,
+                        'subtotal': str(subtotal),
+                        'bottles_count': str(total_quantity),  # ✅ ADDED: Include bottle count
+                        'package_weight': str(total_weight)    # ✅ ADDED: Include package weight
                     }
                 })
 
-                logger.info(f"Razorpay order created: {razorpay_order['id']}")
+                logger.info(f"Razorpay order created: {razorpay_order['id']} - Amount: {amount_in_paise} paise (₹{total_amount})")
 
-                # Create order in database
+                # ✅ CREATE ORDER IN DATABASE
                 order = Order.objects.create(
                     user=request.user,
                     razorpay_order_id=razorpay_order['id'],
                     amount=total_amount,
                     currency='INR',
-                    shipping_info=shipping_info
+                    shipping_info=shipping_info,
+                    subtotal=subtotal,
+                    shipment_charge=shipment_charge,
+                    shipping_partner=shipping_courier
                 )
 
                 # Create order items
@@ -211,13 +300,21 @@ def create_order(request):
                         price=item_data['price']
                     )
 
-                logger.info(f"Database order created: {order.id}")
+                logger.info(f"Database order created: {order.id} with {total_quantity} bottles, shipping: ₹{shipment_charge} via {shipping_courier}")
 
                 return Response({
                     'order_id': razorpay_order['id'],
                     'amount': amount_in_paise,
                     'currency': 'INR',
-                    'key': settings.RAZORPAY_KEY_ID
+                    'key': settings.RAZORPAY_KEY_ID,
+                    'breakdown': {
+                        'subtotal': float(subtotal),
+                        'shipment_charge': float(shipment_charge),
+                        'total': float(total_amount),
+                        'shipping_courier': shipping_courier,
+                        'bottles_count': total_quantity,  # ✅ ADDED: Return bottle count
+                        'package_weight_kg': round(total_weight, 2)  # ✅ ADDED: Return package weight
+                    }
                 })
 
             except Exception as e:
@@ -236,31 +333,81 @@ def create_order(request):
             {'error': f'Internal server error: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    
-def restore_order_stock(order):
+# ✅ REMOVE THE DUPLICATE calculate_shipping VIEW FUNCTION - KEEP ONLY THE SHIPPING CALCULATION VIEW BELOW
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def calculate_shipping_view(request):
     """
-    Restore stock for all products in the order (for failed payments or cancellations)
+    Calculate shipping charges based on delivery pincode - SURFACE COURIERS ONLY
     """
     try:
-        order_items = order.items.all()
+        delivery_pincode = request.data.get('pincode')
+        cart_items = request.data.get('items', [])
         
-        for item in order_items:
-            product = item.product
-            quantity = item.quantity
+        if not delivery_pincode:
+            return Response(
+                {'error': 'Pincode is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate total quantity and weight
+        total_quantity = sum(item.get('quantity', 1) for item in cart_items)
+        bottle_weight_kg = getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)
+        packaging_buffer = getattr(settings, 'PACKAGE_WEIGHT_BUFFER', 0.1)
+        total_weight = (total_quantity * bottle_weight_kg) + packaging_buffer
+        
+        # Calculate shipping charges - SURFACE ONLY
+        success, shipping_data = calculate_shipping_charges_helper(
+            pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
+            delivery_postcode=delivery_pincode,
+            weight=total_weight,
+        )
+        
+        if success:
+            return Response({
+                'success': True,
+                'shipping_charge': shipping_data['cheapest_rate'],
+                'courier': shipping_data['cheapest_courier'],
+                'estimated_days': shipping_data['estimated_days'],
+                'is_recommended': shipping_data.get('is_recommended', True),
+                'is_surface': shipping_data.get('is_surface', True),
+                'recommendation_details': shipping_data.get('recommendation_details', {}),
+                'available_couriers': shipping_data['all_couriers'][:5],
+                'calculation_details': {
+                    'bottles_count': total_quantity,
+                    'total_weight_kg': round(total_weight, 2),
+                    'bottle_weight_g': int(bottle_weight_kg * 1000),
+                    'courier_type': 'surface'
+                }
+            })
+        else:
+            logger.error(f"Surface shipping calculation failed: {shipping_data}")
             
-            old_stock = product.stock
-            product.stock += quantity
-            product.save()
+            # Provide specific error message for no surface couriers
+            error_message = 'Unable to calculate shipping'
+            if 'no surface couriers' in str(shipping_data).lower():
+                error_message = 'No surface shipping available for this pincode. Please contact support for assistance.'
             
-            logger.info(f"Stock restored for product {product.id}: {old_stock} -> {product.stock} (added {quantity})")
-        
-        logger.info(f"Stock restored successfully for order {order.id}")
-        
+            return Response({
+                'success': False,
+                'error': error_message,
+                'shipping_charge': 0,
+                'courier': 'Service unavailable',
+                'estimated_days': 'N/A',
+                'calculation_details': {
+                    'bottles_count': total_quantity,
+                    'total_weight_kg': round(total_weight, 2),
+                    'courier_type': 'surface'
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
     except Exception as e:
-        logger.error(f"Error restoring stock for order {order.id}: {str(e)}")
-        raise e
-    
-
+        logger.error(f"Shipping calculation error: {str(e)}")
+        return Response(
+            {'error': f'Shipping calculation failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def verify_payment(request):
@@ -560,9 +707,387 @@ def cancel_order(request, order_id):
 
     except Order.DoesNotExist:
         return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ============================================================================
+# SHIPROCKET SHIPPING INTEGRATION VIEWS
+# ============================================================================
+
+from .shiprocket_service import ShiprocketService, create_shiprocket_order_from_django_order
+import threading
+
+
+def create_shiprocket_order_async(order_id):
+    """
+    Create Shiprocket order asynchronously (non-blocking)
+    """
+    try:
+        order = Order.objects.get(id=order_id)
+        # Determine cheapest courier before creating Shiprocket order
+        try:
+            shipping_info = order.shipping_info or {}
+            delivery_pincode = shipping_info.get('pincode')
+            # compute total weight from order items
+            total_weight = sum([getattr(item.product, 'weight', getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)) * item.quantity for item in order.items.all()])
+            success_q, shipping_data = calculate_shipping_charges_helper(
+                pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
+                delivery_postcode=delivery_pincode,
+                weight=total_weight,
+                # length=getattr(settings, 'PERFUME_BOTTLE_LENGTH', 8),
+                # breadth=getattr(settings, 'PERFUME_BOTTLE_BREADTH', 10),
+                # height=getattr(settings, 'PERFUME_BOTTLE_HEIGHT', 15)
+            )
+            preferred_courier = None
+            if success_q:
+                preferred_courier = shipping_data.get('cheapest_courier')
+                logger.info(f"Async shipment: chosen cheapest courier {preferred_courier} for order {order_id}")
+            else:
+                logger.warning(f"Async shipment: could not determine cheapest courier for order {order_id}: {shipping_data}")
+
+        except Exception as e:
+            logger.warning(f"Async shipment: error computing courier for order {order_id}: {e}")
+            preferred_courier = None
+
+        success, response = create_shiprocket_order_from_django_order(order, preferred_courier=preferred_courier)
+
+        if success:
+            # Persist Shiprocket response and chosen courier
+            order.shiprocket_order_id = response.get('order_id')
+            if preferred_courier:
+                order.shipping_partner = preferred_courier
+            # store shipment_id inside tracking_data JSON to avoid DB migrations
+            tracking = order.tracking_data or {}
+            if response.get('shipment_id'):
+                tracking['shipment_id'] = response.get('shipment_id')
+            tracking['shiprocket_raw'] = response.get('response') if isinstance(response.get('response'), dict) else response.get('response')
+            order.tracking_data = tracking
+            order.shipping_status = 'processing'
+            order.save()
+            logger.info(f"Shiprocket order created for order {order_id}: {order.shiprocket_order_id}")
+        else:
+            logger.error(f"Failed to create Shiprocket order for order {order_id}: {response}")
+            order.shipping_status = 'failed'
+            order.save()
+    except Exception as e:
+        logger.error(f"Error in async Shiprocket order creation: {str(e)}")
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_tracking(request, order_id):
+    """
+    Get tracking information for an order
     
+    GET /api/payments/tracking/{order_id}/
+    """
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+        
+        if not order.shiprocket_order_id:
+            return Response(
+                {'error': 'Shiprocket order not yet created'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        service = ShiprocketService()
+        success, tracking_data = service.get_tracking(order.shiprocket_order_id)
+        
+        if success:
+            # Extract relevant tracking information
+            shipments = tracking_data.get('shipments', [])
+            if shipments:
+                shipment = shipments[0]
+                
+                # Update order with tracking details
+                order.tracking_id = shipment.get('track_id')
+                order.shipping_partner = shipment.get('courier_name')
+                order.tracking_url = shipment.get('track_url')
+                order.shipping_status = shipment.get('status', order.shipping_status)
+                order.save()
+                
+                return Response({
+                    'tracking_id': order.tracking_id,
+                    'courier': order.shipping_partner,
+                    'status': order.shipping_status,
+                    'tracking_url': order.tracking_url,
+                    'shipment_data': shipment
+                })
+            else:
+                return Response({'message': 'No shipment data available yet'})
+        else:
+            logger.error(f"Failed to get tracking for order {order_id}")
+            return Response(
+                {'error': 'Unable to retrieve tracking information'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
-# Add to prevent abuse
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error retrieving tracking: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_shipment(request, order_id):
+    """
+    Create a shipment for a paid order in Shiprocket
+    
+    POST /api/payments/create-shipment/{order_id}/
+    """
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+        
+        # Only allow shipment creation for paid orders
+        if order.status != 'paid':
+            return Response(
+                {'error': f'Order status must be "paid", current status: {order.status}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if Shiprocket order already exists
+        if not order.shiprocket_order_id:
+            # Calculate cheapest courier first and pass preference to creator
+            shipping_info = order.shipping_info or {}
+            delivery_pincode = shipping_info.get('pincode')
+            total_weight = sum([getattr(item.product, 'weight', getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)) * item.quantity for item in order.items.all()])
+            success_q, shipping_data = calculate_shipping_charges_helper(
+                pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
+                delivery_postcode=delivery_pincode,
+                weight=total_weight,
+            )
+            preferred_courier = shipping_data.get('cheapest_courier') if success_q else None
+
+            success, response = create_shiprocket_order_from_django_order(order, preferred_courier=preferred_courier)
+
+            if success:
+                # Persist Shiprocket response and chosen courier
+                order.shiprocket_order_id = response.get('order_id')
+                if preferred_courier:
+                    order.shipping_partner = preferred_courier
+                tracking = order.tracking_data or {}
+                if response.get('shipment_id'):
+                    tracking['shipment_id'] = response.get('shipment_id')
+                tracking['shiprocket_raw'] = response.get('response') if isinstance(response.get('response'), dict) else response.get('response')
+                order.tracking_data = tracking
+                order.shipping_status = 'processing'
+                order.save()
+
+                logger.info(f"Shipment created for order {order_id}, Shiprocket ID: {order.shiprocket_order_id}")
+
+                return Response({
+                    'success': True,
+                    'message': 'Shipment created successfully',
+                    'shiprocket_order_id': order.shiprocket_order_id,
+                    'shipping_status': order.shipping_status,
+                    'shipping_partner': order.shipping_partner,
+                    'shipment_id': tracking.get('shipment_id')
+                })
+            else:
+                logger.error(f"Failed to create Shiprocket order: {response}")
+                return Response(
+                    {'error': 'Failed to create shipment'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        else:
+            # Shiprocket order already exists
+            return Response({
+                'success': True,
+                'message': 'Shiprocket order already exists',
+                'shiprocket_order_id': order.shiprocket_order_id,
+                'shipping_status': order.shipping_status
+            })
+    
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error creating shipment: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_shipment(request, order_id):
+    """
+    Cancel a shipment in Shiprocket
+    
+    POST /api/payments/cancel-shipment/{order_id}/
+    """
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+        
+        if not order.shiprocket_order_id:
+            return Response(
+                {'error': 'No Shiprocket order to cancel'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        service = ShiprocketService()
+        success, response = service.cancel_order(order.shiprocket_order_id)
+        
+        if success:
+            order.shipping_status = 'cancelled'
+            order.save()
+            logger.info(f"Shipment cancelled for order {order_id}")
+            
+            return Response({
+                'success': True,
+                'message': 'Shipment cancelled successfully'
+            })
+        else:
+            logger.error(f"Failed to cancel Shiprocket order: {response}")
+            return Response(
+                {'error': 'Failed to cancel shipment'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error cancelling shipment: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_label(request, order_id):
+    """
+    Generate shipping label for an order
+    
+    POST /api/payments/generate-label/{order_id}/
+    """
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+        
+        if not order.shiprocket_order_id:
+            return Response(
+                {'error': 'Shiprocket order not yet created'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        service = ShiprocketService()
+        success, label_url = service.generate_label(order.shiprocket_order_id)
+        
+        if success:
+            order.shipping_label_url = label_url
+            order.save()
+            logger.info(f"Shipping label generated for order {order_id}")
+            
+            return Response({
+                'success': True,
+                'label_url': label_url,
+                'message': 'Shipping label generated successfully'
+            })
+        else:
+            logger.error(f"Failed to generate label: {label_url}")
+            return Response(
+                {'error': 'Failed to generate shipping label'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Error generating label: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def order_shipping_status(request, order_id):
+    """
+    Get detailed shipping status for an order
+    
+    GET /api/payments/shipping-status/{order_id}/
+    """
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+        
+        return Response({
+            'order_id': order.id,
+            'razorpay_order_id': order.razorpay_order_id,
+            'shiprocket_order_id': order.shiprocket_order_id,
+            'shipping_status': order.shipping_status,
+            'tracking_id': order.tracking_id,
+            'shipping_partner': order.shipping_partner,
+            'tracking_url': order.tracking_url,
+            'shipping_label_url': order.shipping_label_url,
+            'payment_status': order.status,
+            'shipping_info': order.shipping_info
+        })
+    
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+from .shiprocket_service import calculate_shipping  # Import the helper function
+from django.conf import settings
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def calculate_shipping(request):
+    """
+    Calculate shipping charges based on delivery pincode
+    """
+    try:
+        delivery_pincode = request.data.get('pincode')
+        cart_items = request.data.get('items', [])
+        
+        if not delivery_pincode:
+            return Response(
+                {'error': 'Pincode is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate total weight from cart items
+        total_weight = settings.DEFAULT_PACKAGE_WEIGHT * len(cart_items)
+        
+        # Calculate shipping charges using the helper function
+        success, shipping_data = calculate_shipping(
+            pickup_postcode=settings.SHIPROCKET_PICKUP_PINCODE,
+            delivery_postcode=delivery_pincode,
+            weight=total_weight,
+            length=settings.PERFUME_BOTTLE_LENGTH,
+            breadth=settings.PERFUME_BOTTLE_BREADTH,
+            height=settings.PERFUME_BOTTLE_HEIGHT
+        )
+        
+        if success:
+            return Response({
+                'success': True,
+                'shipping_charge': shipping_data['cheapest_rate'],
+                'courier': shipping_data['cheapest_courier'],
+                'estimated_days': shipping_data['estimated_days'],
+                'available_couriers': shipping_data['all_couriers'][:5]  # Top 5 cheapest
+            })
+        else:
+            # Return error instead of fallback
+            logger.error(f"Shipping calculation failed: {shipping_data}")
+            return Response({
+                'success': False,
+                'error': f'Unable to calculate shipping: {shipping_data}',
+                'shipping_charge': 0,
+                'courier': 'Service unavailable',
+                'estimated_days': 'N/A'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+    except Exception as e:
+        logger.error(f"Shipping calculation error: {str(e)}")
+        return Response(
+            {'error': f'Shipping calculation failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
 from rest_framework.throttling import UserRateThrottle
 
 class PaymentThrottle(UserRateThrottle):

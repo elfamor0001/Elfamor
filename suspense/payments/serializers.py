@@ -8,18 +8,25 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ['id', 'product', 'quantity', 'price']
-
-class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True, read_only=True)
-    
-    class Meta:
-        model = Order
-        fields = ['id', 'razorpay_order_id', 'amount', 'currency', 'status', 'created_at', 'items']
-
+        
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ['id', 'razorpay_payment_id', 'status', 'amount', 'currency', 'method', 'created_at']
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    payment = PaymentSerializer(read_only=True)
+    
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'razorpay_order_id', 'amount', 'currency', 'status', 'created_at',
+            'items', 'payment', 'shipping_info', 'shipping_status', 'awb_number',
+            'tracking_url', 'courier_name', 'delivered_at', 'tracking_data'
+        ]
+
+
 
 class CreateOrderSerializer(serializers.Serializer):
     items = serializers.ListField(
