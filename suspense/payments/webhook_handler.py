@@ -382,66 +382,72 @@ def handle_shipment_cancelled(webhook_data):
         WebhookLogger.log_error('shipment_cancelled', str(e))
         return False, str(e)
 
-
 @csrf_exempt
-@require_http_methods(["POST"])
 def shiprocket_webhook(request):
     """
-    FINAL Shiprocket webhook handler
-    Compatible with real Shiprocket webhook payloads
+    Final Shiprocket webhook handler
+    Accepts GET (for verification) and POST (for real webhook events)
     """
-    try:
-        # Parse payload
+    # STEP 1 → Shiprocket sends GET first to check endpoint health
+    if request.method == "GET":
+        return JsonResponse({"status": "ok", "message": "Webhook endpoint active"}, status=200)
+
+    # STEP 2 → Real webhook events come as POST
+    if request.method == "POST":
         try:
-            payload = json.loads(request.body)
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON")
-            return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
+            # Parse payload
+            try:
+                payload = json.loads(request.body)
+            except json.JSONDecodeError:
+                logger.error("Shiprocket Webhook: Invalid JSON")
+                return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
 
-        # Shiprocket sends all fields in the root level
-        event_type = payload.get("event")
-        order_id = payload.get("order_id")
+            # Shiprocket supplies event + order_id at root
+            event_type = payload.get("event")
+            order_id = payload.get("order_id")
 
-        # Debug log
-        logger.info(f"Shiprocket Webhook Received: event={event_type}, order_id={order_id}")
+            logger.info(f"Shiprocket Webhook Received: event={event_type}, order_id={order_id}")
 
-        # Basic validation
-        if not event_type:
-            return JsonResponse({"status": "error", "message": "Missing event"}, status=400)
+            # Basic validation
+            if not event_type:
+                return JsonResponse({"status": "error", "message": "Missing event"}, status=400)
 
-        if not order_id:
-            return JsonResponse({"status": "error", "message": "Missing order_id"}, status=400)
+            if not order_id:
+                return JsonResponse({"status": "error", "message": "Missing order_id"}, status=400)
 
-        # Map real Shiprocket events → your handlers
-        event_map = {
-            "AWB_GENERATED": handle_shipment_generated,
-            "ORDER_STATUS_UPDATE": handle_shipment_status,
-            "OUT_FOR_DELIVERY": handle_shipment_status,
-            "DELIVERED": handle_shipment_delivered,
-            "CANCELED": handle_shipment_cancelled,
-        }
+            # Map event to your handlers
+            event_map = {
+                "AWB_GENERATED": handle_shipment_generated,
+                "ORDER_STATUS_UPDATE": handle_shipment_status,
+                "OUT_FOR_DELIVERY": handle_shipment_status,
+                "DELIVERED": handle_shipment_delivered,
+                "CANCELED": handle_shipment_cancelled,
+            }
 
-        handler = event_map.get(event_type)
+            handler = event_map.get(event_type)
 
-        if not handler:
-            logger.warning(f"Unhandled event type: {event_type}")
+            if not handler:
+                logger.warning(f"Unhandled Shiprocket event type: {event_type}")
+                return JsonResponse({
+                    "status": "ignored",
+                    "message": f"Unhandled event: {event_type}"
+                }, status=202)
+
+            # Process webhook event
+            success, message = handler(payload)
+
             return JsonResponse({
-                "status": "ignored",
-                "message": f"Unhandled event: {event_type}"
-            }, status=202)
+                "status": "success" if success else "error",
+                "message": message,
+                "event": event_type
+            }, status=200 if success else 400)
 
-        # Process webhook
-        success, message = handler(payload)
+        except Exception as e:
+            logger.exception("Unhandled Shiprocket webhook exception")
+            return JsonResponse({"status": "error", "message": str(e)}, status=200)
 
-        return JsonResponse({
-            "status": "success" if success else "error",
-            "message": message,
-            "event": event_type
-        }, status=200 if success else 400)
-
-    except Exception as e:
-        logger.exception("Unhandled webhook exception")
-        return JsonResponse({"status": "error", "message": str(e)}, status=500)
+    # STEP 3 → Block any method other than GET/POST
+    return JsonResponse({"error": "Method not allowed"}, status=405)
 
 
 @csrf_exempt
