@@ -35,6 +35,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.com',
     'https://www.elfamor.com',  # Make sure this is included
     'https://elfamor.vercel.app',
+    'https://www.shiprocket.in',
+    'https://apiv2.shiprocket.in',
 ]
 
 # CORS Settings - FIXED
@@ -94,7 +96,7 @@ if DEBUG:
     SESSION_COOKIE_SAMESITE = 'Lax'
 
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
+    SECURE_SSL_REDIRECT = False
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
