@@ -20,7 +20,7 @@ urlpatterns = [
     path('shipping-status/<int:order_id>/', views.order_shipping_status, name='shipping-status'),
     
     # Shiprocket Webhook Endpoints
-    path('sr-update/', shiprocket_webhook)   # allowed
+    path('srupdate/', shiprocket_webhook)   # allowed
 
     # path('webhooks/shiprocket/health/', webhook_health_check, name='webhook-health-check'),
 ]
