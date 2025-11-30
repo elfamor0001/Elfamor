@@ -8,16 +8,13 @@ from django.conf import settings
 
 
 logger = logging.getLogger(__name__)
+logger.warning(f"[DEBUG] Webhook file loaded from: {__file__}")
 
 def verify_shiprocket_token(request):
-    """
-    Verify Shiprocket webhook token from x-api-key header
-    """
-    token = request.headers.get('x-api-key')
+    token = request.META.get('HTTP_X_API_KEY')
     expected_token = getattr(settings, 'SHIPROCKET_WEBHOOK_TOKEN', 'hehe')
-    
+
     if not expected_token:
-        # If no token configured, accept all requests
         return True
         
     if not token or token != expected_token:
