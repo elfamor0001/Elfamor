@@ -72,71 +72,71 @@ def handle_shiprocket_webhook(payload):
         if not lookup_order_id:
             return False, "Missing order_id and sr_order_id"
         
-        try:
-            # Try to find order by Shiprocket order ID first, then channel order ID
-            if sr_order_id:
-                order = Order.objects.get(shiprocket_order_id=str(sr_order_id))
-            else:
-                order = Order.objects.get(channel_order_id=str(order_id))
-        except Order.DoesNotExist:
-            logger.error(f"Order not found: sr_order_id={sr_order_id}, order_id={order_id}")
-            return False, f"Order {lookup_order_id} not found"
+        # try:
+        #     # Try to find order by Shiprocket order ID first, then channel order ID
+        #     if sr_order_id:
+        #         order = Order.objects.get(shiprocket_order_id=str(sr_order_id))
+        #     else:
+        #         order = Order.objects.get(channel_order_id=str(order_id))
+        # except Order.DoesNotExist:
+        #     logger.error(f"Order not found: sr_order_id={sr_order_id}, order_id={order_id}")
+        #     return False, f"Order {lookup_order_id} not found"
         
-        # Map Shiprocket status to internal status
-        status_map = {
-            'MANIFEST GENERATED': 'processing',
-            'PICKED UP': 'shipped', 
-            'SHIPPED': 'shipped',
-            'IN TRANSIT': 'in_transit',
-            'OUT FOR DELIVERY': 'out_for_delivery',
-            'DELIVERED': 'delivered',
-            'CANCELLED': 'cancelled',
-            'RTO': 'returned'
-        }
+        # # Map Shiprocket status to internal status
+        # status_map = {
+        #     'MANIFEST GENERATED': 'processing',
+        #     'PICKED UP': 'shipped', 
+        #     'SHIPPED': 'shipped',
+        #     'IN TRANSIT': 'in_transit',
+        #     'OUT FOR DELIVERY': 'out_for_delivery',
+        #     'DELIVERED': 'delivered',
+        #     'CANCELLED': 'cancelled',
+        #     'RTO': 'returned'
+        # }
         
-        # Update order fields
-        changes = {}
+        # # Update order fields
+        # changes = {}
         
-        # Update AWB if not set
-        if awb and not order.awb_number:
-            order.awb_number = awb
-            changes['awb_number'] = awb
+        # # Update AWB if not set
+        # if awb and not order.awb_number:
+        #     order.awb_number = awb
+        #     changes['awb_number'] = awb
         
-        # Update courier name
-        if courier_name and courier_name != order.courier_name:
-            order.courier_name = courier_name
-            changes['courier_name'] = courier_name
+        # # Update courier name
+        # if courier_name and courier_name != order.courier_name:
+        #     order.courier_name = courier_name
+        #     changes['courier_name'] = courier_name
         
-        # Update shipping status
-        mapped_status = status_map.get(current_status, current_status.lower())
-        if mapped_status and order.shipping_status != mapped_status:
-            order.shipping_status = mapped_status
-            changes['shipping_status'] = mapped_status
+        # # Update shipping status
+        # mapped_status = status_map.get(current_status, current_status.lower())
+        # if mapped_status and order.shipping_status != mapped_status:
+        #     order.shipping_status = mapped_status
+        #     changes['shipping_status'] = mapped_status
             
-            # Set delivered timestamp if status is delivered
-            if mapped_status == 'delivered':
-                order.delivered_at = parse_shiprocket_timestamp(current_timestamp)
-                changes['delivered_at'] = order.delivered_at.isoformat()
+        #     # Set delivered timestamp if status is delivered
+        #     if mapped_status == 'delivered':
+        #         order.delivered_at = parse_shiprocket_timestamp(current_timestamp)
+        #         changes['delivered_at'] = order.delivered_at.isoformat()
         
-        # Store tracking data
-        if not order.tracking_data:
-            order.tracking_data = {}
+        # # Store tracking data
+        # if not order.tracking_data:
+        #     order.tracking_data = {}
         
-        # Update tracking history with scans
-        if scans:
-            order.tracking_data['scans'] = scans
-            changes['scans_added'] = len(scans)
+        # # Update tracking history with scans
+        # if scans:
+        #     order.tracking_data['scans'] = scans
+        #     changes['scans_added'] = len(scans)
         
-        # Store latest webhook payload
-        order.tracking_data['last_webhook'] = {
-            'timestamp': datetime.now().isoformat(),
-            'status': current_status,
-            'status_id': current_status_id,
-            'payload': payload
-        }
+        # # Store latest webhook payload
+        # order.tracking_data['last_webhook'] = {
+        #     'timestamp': datetime.now().isoformat(),
+        #     'status': current_status,
+        #     'status_id': current_status_id,
+        #     'payload': payload
+        # }
         
-        order.save()
-        
+        # order.save()
+        changes = {}
         logger.info(f"Shiprocket webhook processed: Order {lookup_order_id}, Changes: {changes}")
         return True, f"Status updated to {current_status}"
         
