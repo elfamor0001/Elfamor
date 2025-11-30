@@ -92,6 +92,7 @@ def handle_shiprocket_webhook(payload):
             changes['courier_name'] = courier_name
 
         mapped_status = status_map.get(current_status, current_status.lower())
+        logger.warning(f"Before update: {order.shipping_status}, After mapped: {mapped_status}")
         if mapped_status and order.shipping_status != mapped_status:
             order.shipping_status = mapped_status
             changes['shipping_status'] = mapped_status
