@@ -22,7 +22,8 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
-    'elfamor.com'
+    'elfamor.com',
+    'elfamor.vercel.app'
 ]
 
 # Update CSRF_TRUSTED_ORIGINS for local frontend
@@ -32,6 +33,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
     'https://elfamor.com',
     'https://www.elfamor.com',
+    'https://elfamor.vercel.app',
 ]
 
 
@@ -64,6 +66,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://elfamor.pythonanywhere.com',
     'https://elfamor.com',
     'https://www.elfamor.com',
+    'https://elfamor.vercel.app',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
