@@ -15,49 +15,34 @@ SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
-
-# Update ALLOWED_HOSTS for local development
+# ----------------------------
+# HOSTS
+# ----------------------------
 ALLOWED_HOSTS = [
     'elfamor.pythonanywhere.com',
     'localhost',
     '127.0.0.1',
-    '0.0.0.0',
-    'elfamor.com',
-    'www.elfamor.com',  # Add this
-    'elfamor.vercel.app'
 ]
 
-# Update CSRF_TRUSTED_ORIGINS
+# ----------------------------
+# CSRF TRUSTED ORIGINS
+# ----------------------------
 CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.pythonanywhere.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    'https://elfamor.com',
-    'https://www.elfamor.com',  # Make sure this is included
-    'https://elfamor.vercel.app',
 ]
 
-# CORS Settings - FIXED
+# ----------------------------
+# CORS SETTINGS
+# ----------------------------
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'https://elfamor.pythonanywhere.com',
-    'https://elfamor.com',
-    'https://www.elfamor.com',  # CRITICAL: Add this
-    'https://elfamor.vercel.app',
 ]
-
-# Alternative: Allow all origins in development (be careful in production)
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOW_CREDENTIALS = True
 
-# Additional CORS settings
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -72,28 +57,21 @@ CORS_ALLOW_HEADERS = [
 
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
-# Security Settings for cross-origin
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
-
-SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
-
-# Session settings
-SESSION_ENGINE = "django.contrib.sessions.backends.db"
-SESSION_COOKIE_AGE = 1209600
-SESSION_COOKIE_DOMAIN = None
-
-# Disable production security for development if needed
+# ----------------------------
+# COOKIES (LOCAL ONLY)
+# ----------------------------
 if DEBUG:
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SAMESITE = 'Lax'
-
-if not DEBUG:
+    SESSION_COOKIE_DOMAIN = None
+else:
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_DOMAIN = "elfamor.pythonanywhere.com"
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
