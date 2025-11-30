@@ -160,7 +160,10 @@ def shiprocket_webhook(request):
     
     # POST request for webhook data
     if request.method == "POST":
-        
+        logger.warning("=== SHIPROCKET WEBHOOK RECEIVED ===")
+        logger.warning(f"HEADERS: {dict(request.headers)}")
+        logger.warning(f"RAW BODY: {request.body[:500]}")
+
         # Verify security token
         if not verify_shiprocket_token(request):
             return JsonResponse({
