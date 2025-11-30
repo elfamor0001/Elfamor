@@ -41,7 +41,6 @@ class OrderAdmin(admin.ModelAdmin):
         'free_shipping',
         'status_badge', 
         'shipping_status_badge',
-        'tracking_id',
         'shipping_partner',
         'created_at', 
         'payment_status'
@@ -60,7 +59,6 @@ class OrderAdmin(admin.ModelAdmin):
         'razorpay_order_id', 
         'user__email', 
         'user__username', 
-        'tracking_id',
         'awb_number',
         'courier_name',
         'shipping_partner'
@@ -68,8 +66,8 @@ class OrderAdmin(admin.ModelAdmin):
     
     readonly_fields = [
         'razorpay_order_id', 'amount', 'currency', 'created_at', 'updated_at', 
-        'shiprocket_order_id', 'tracking_id', 'shipping_partner', 'tracking_url', 
-        'shipping_label_url', 'subtotal', 'shipment_charge', 'total_amount', 
+        'shiprocket_order_id', 'shipping_partner', 
+        'subtotal', 'shipment_charge', 'total_amount', 
         'free_shipping', 'awb_number', 'courier_name', 'delivered_at', 
         'tracking_data_display', 'shipping_info_display'
     ]
@@ -98,10 +96,7 @@ class OrderAdmin(admin.ModelAdmin):
             'fields': (
                 'shiprocket_order_id',
                 'shipping_status',
-                'tracking_id',
                 'shipping_partner',
-                'tracking_url',
-                'shipping_label_url',
             )
         }),
         ('Advanced Shipping Information', {
@@ -343,9 +338,7 @@ class OrderAdmin(admin.ModelAdmin):
                     shipments = tracking_data.get('shipments', [])
                     if shipments:
                         shipment = shipments[0]
-                        order.tracking_id = shipment.get('track_id')
                         order.shipping_partner = shipment.get('courier_name')
-                        order.tracking_url = shipment.get('track_url')
                         
                         # Map Shiprocket status to our status choices
                         status_map = {
@@ -380,8 +373,7 @@ class OrderAdmin(admin.ModelAdmin):
     def generate_shipping_label(self, request, queryset):
         """Generate shipping labels for selected orders"""
         orders_with_shiprocket = queryset.filter(
-            shiprocket_order_id__isnull=False,
-            shipping_label_url__isnull=True
+            shiprocket_order_id__isnull=False
         )
         
         generated_count = 0
@@ -394,8 +386,6 @@ class OrderAdmin(admin.ModelAdmin):
                 success, label_url = service.generate_label(order.shiprocket_order_id)
                 
                 if success:
-                    order.shipping_label_url = label_url
-                    order.save()
                     generated_count += 1
                     logger.info(f"Shipping label generated for order {order.id}")
                 else:
@@ -473,6 +463,7 @@ class OrderItemAdmin(admin.ModelAdmin):
         quantity = getattr(obj, 'quantity', 0) or 0
         return f"₹{quantity * price}"
     item_total_display.short_description = 'Total'
+    
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
     list_display = [
@@ -547,6 +538,6 @@ class PaymentAdmin(admin.ModelAdmin):
     mark_as_failed.short_description = "Mark selected payments as failed"
 
 # Custom admin site header and title
-admin.site.site_header = "Perfume Store Administration"
-admin.site.site_title = "Perfume Store Admin"
-admin.site.index_title = "Welcome to Perfume Store Admin Portal"
+admin.site.site_header = "Elfamor Administration"
+admin.site.site_title = "Elfamor Admin"
+admin.site.index_title = "Welcome to Elfamor Admin Portal"
