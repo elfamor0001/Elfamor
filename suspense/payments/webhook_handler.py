@@ -12,7 +12,7 @@ def verify_shiprocket_token(request):
     Verify Shiprocket webhook token from x-api-key header
     """
     token = request.headers.get('x-api-key')
-    expected_token = getattr(settings, 'SHIPROCKET_WEBHOOK_TOKEN', '')
+    expected_token = getattr(settings, 'SHIPROCKET_WEBHOOK_TOKEN', 'hehe')
     
     if not expected_token:
         # If no token configured, accept all requests
