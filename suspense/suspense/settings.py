@@ -14,7 +14,7 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)  # Set to True for development
+DEBUG = config('DEBUG', default=True, cast=bool)
 
 # Update ALLOWED_HOSTS for local development
 ALLOWED_HOSTS = [
@@ -23,42 +23,21 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',
     'elfamor.com',
-    'www.elfamor.com',
+    'www.elfamor.com',  # Add this
     'elfamor.vercel.app'
 ]
 
-# Update CSRF_TRUSTED_ORIGINS for local frontend
+# Update CSRF_TRUSTED_ORIGINS
 CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.pythonanywhere.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'https://elfamor.com',
-    'https://www.elfamor.com',
+    'https://www.elfamor.com',  # Make sure this is included
     'https://elfamor.vercel.app',
 ]
 
-
-# Security Settings (Development - Less restrictive)
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SECURE = False    # Allow HTTP for local development
-CSRF_COOKIE_SAMESITE = 'Lax'  # Changed from None to Lax for localhost
-
-SESSION_COOKIE_SECURE = False   # Allow HTTP for local development
-SESSION_COOKIE_HTTPONLY = True  # Keep session cookie secure
-SESSION_COOKIE_SAMESITE = 'Lax' # Balance security and usability for localhost
-
-# Disable production security for development
-SECURE_SSL_REDIRECT = False
-SECURE_HSTS_SECONDS = 0
-SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-SECURE_HSTS_PRELOAD = False
-
-# Session settings
-SESSION_ENGINE = "django.contrib.sessions.backends.db"
-SESSION_COOKIE_AGE = 1209600  # 2 weeks session expiry
-SESSION_COOKIE_DOMAIN = None   # Important: Set to None for localhost
-
-# CORS Settings for local development
+# CORS Settings - FIXED
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -66,13 +45,19 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:3000',
     'https://elfamor.pythonanywhere.com',
     'https://elfamor.com',
-    'https://www.elfamor.com',
+    'https://www.elfamor.com',  # CRITICAL: Add this
     'https://elfamor.vercel.app',
 ]
 
+# Alternative: Allow all origins in development (be careful in production)
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOW_CREDENTIALS = True
 
-# Additional CORS settings for development
+# Additional CORS settings
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -86,6 +71,34 @@ CORS_ALLOW_HEADERS = [
 ]
 
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
+
+# Security Settings for cross-origin
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
+CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+
+SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+
+# Session settings
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_AGE = 1209600
+SESSION_COOKIE_DOMAIN = None
+
+# Disable production security for development if needed
+if DEBUG:
+    CSRF_COOKIE_SECURE = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SAMESITE = 'Lax'
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -106,7 +119,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # Keep this first
+    'corsheaders.middleware.CorsMiddleware',  # This must be first
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -116,6 +129,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# ... rest of your settings remain the same
 ROOT_URLCONF = 'suspense.urls'
 
 TEMPLATES = [
