@@ -9,43 +9,76 @@ import cloudinary.api
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_URL = 'http://localhost:5173'
 AUTH_USER_MODEL = 'accounts.CustomUser'
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config('SECRET_KEY')
 
-# settings.py
-MEDIA_URL = '/media/'
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = config('DEBUG', default=True, cast=bool)  # Set to True for development
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=lambda v: [s.strip() for s in v.split(',')])
+# Update ALLOWED_HOSTS for local development
+ALLOWED_HOSTS = [
+    'elfamor.pythonanywhere.com',
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    'elfamor.com'
+]
 
-CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', cast=lambda v: [s.strip() for s in v.split(',')])
+# Update CSRF_TRUSTED_ORIGINS for local frontend
+CSRF_TRUSTED_ORIGINS = [
+    'https://elfamor.pythonanywhere.com',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://elfamor.com',
+    'https://www.elfamor.com',
+]
 
-# Security Settings (Production)
+
+# Security Settings (Development - Less restrictive)
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SECURE = True      # Send only over HTTPS
-SESSION_COOKIE_SECURE = True   # Send session cookie only over HTTPS
-SESSION_COOKIE_HTTPONLY = True # Prevent JavaScript access to session cookie
-SESSION_COOKIE_SAMESITE = 'Lax'# Balance security and usability
+CSRF_COOKIE_SECURE = False    # Allow HTTP for local development
+CSRF_COOKIE_SAMESITE = 'Lax'  # Changed from None to Lax for localhost
 
-if not DEBUG:
-    SECURE_SSL_REDIRECT = True
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = False   # Allow HTTP for local development
+SESSION_COOKIE_HTTPONLY = True  # Keep session cookie secure
+SESSION_COOKIE_SAMESITE = 'Lax' # Balance security and usability for localhost
 
-# settings.py
-SESSION_ENGINE = "django.contrib.sessions.backends.db"  # Default
-SESSION_COOKIE_AGE = 1209600  # 2 weeks session expiry (optional)
-# Application definition
+# Disable production security for development
+SECURE_SSL_REDIRECT = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
 
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=lambda v: [s.strip() for s in v.split(',')])
+# Session settings
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_AGE = 1209600  # 2 weeks session expiry
+SESSION_COOKIE_DOMAIN = None   # Important: Set to None for localhost
+
+# CORS Settings for local development
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]
+
 CORS_ALLOW_CREDENTIALS = True
+
+# Additional CORS settings for development
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -66,7 +99,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Keep this first
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -99,6 +132,10 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+        },
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
@@ -107,18 +144,22 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['file'],
-            'level': 'ERROR',
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
             'propagate': True,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
         },
     },
 }
 
-
 # Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+USE_PA_DB = config('PA_DB', default=False, cast=bool)
 
-if os.getenv('PA_DB'):  # running on PythonAnywhere
+if USE_PA_DB:  # running on PythonAnywhere
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -129,22 +170,19 @@ if os.getenv('PA_DB'):  # running on PythonAnywhere
             'PORT': '3306',
         }
     }
-else:  # local development with PostgreSQL
+else:  # local PostgreSQL
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': config('LOCAL_DB_NAME', default='your_local_db_name'),
-            'USER': config('LOCAL_DB_USER', default='your_username'),
-            'PASSWORD': config('LOCAL_DB_PASSWORD', default='your_password'),
+            'NAME': config('LOCAL_DB_NAME'),
+            'USER': config('LOCAL_DB_USER'),
+            'PASSWORD': config('LOCAL_DB_PASSWORD'),
             'HOST': config('LOCAL_DB_HOST', default='localhost'),
             'PORT': config('LOCAL_DB_PORT', default='5432'),
         }
     }
 
-
 # Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -160,29 +198,22 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'Asia/Kolkata'
-
 USE_I18N = True
-
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+# Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+# Media files
+MEDIA_URL = '/media/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Cloudinary configuration
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': config('CLOUDINARY_CLOUD_NAME'),
@@ -190,50 +221,47 @@ CLOUDINARY_STORAGE = {
     'API_SECRET': config('CLOUDINARY_API_SECRET'),
 }
 
-cloudinary.config( 
+cloudinary.config(
   cloud_name = config('CLOUDINARY_CLOUD_NAME'),
   api_key = config('CLOUDINARY_API_KEY'),
   api_secret = config('CLOUDINARY_API_SECRET'),
   secure = True
 )
 
+# REST Framework configuration for development
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+}
 
-# Email settings
-# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-# EMAIL_HOST = 'smtp.gmail.com'
-# EMAIL_PORT = 587
-# EMAIL_USE_TLS = True
-# EMAIL_HOST_USER = config('EMAIL_HOST_USER')    
-# EMAIL_HOST_PASSWORD=config('EMAIL_HOST_PASSWORD')
-# DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
-
-
-# Razorpay Configuration
+# Payment Configuration
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET')
 RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET')
 
-
-
-# Add to your settings.py - Email Configuration Section
-
-# Brevo Configuration
-BREVO_API_KEY = config('BREVO_API_KEY')  # Your API key (starts with xkeysib-)
+# Email Configuration
+BREVO_API_KEY = config('BREVO_API_KEY')
 BREVO_EMAIL_API_KEY = config("BREVO_EMAIL_API_KEY")
 ADMIN_EMAIL = config('ADMIN_EMAIL')
-BREVO_SMS_SENDER = config('BREVO_SMS_SENDER')  # Must be approved in Brevo --- IGNORE ---
+BREVO_SMS_SENDER = config('BREVO_SMS_SENDER')
 BREVO_EMAIL_SENDER = config('BREVO_EMAIL_SENDER')
 
+# Shipping Configuration
 SHIPROCKET_EMAIL = config('SHIPROCKET_EMAIL')
 SHIPROCKET_PASSWORD = config('SHIPROCKET_PASSWORD')
-SHIPROCKET_PICKUP_PINCODE = config('SHIPROCKET_PICKUP_PINCODE')  # Your warehouse pincode
+SHIPROCKET_PICKUP_PINCODE = config('SHIPROCKET_PICKUP_PINCODE')
 
-# Perfume Product Specifications
-PERFUME_BOTTLE_WEIGHT = 0.2  # 200g in kg
-PERFUME_BOTTLE_LENGTH = 8    # cm
-PERFUME_BOTTLE_HEIGHT = 15   # cm  
-PERFUME_BOTTLE_BREADTH = 10  # cm
-
-# Package calculation rules
-PACKAGE_WEIGHT_BUFFER = 0.1  # 100g additional packaging weight
-MAX_BOTTLES_PER_PACKAGE = 3  # Maximum bottles in one package
+# Product Specifications
+PERFUME_BOTTLE_WEIGHT = 0.2
+PERFUME_BOTTLE_LENGTH = 8
+PERFUME_BOTTLE_HEIGHT = 15
+PERFUME_BOTTLE_BREADTH = 10
+PACKAGE_WEIGHT_BUFFER = 0.1
+MAX_BOTTLES_PER_PACKAGE = 3

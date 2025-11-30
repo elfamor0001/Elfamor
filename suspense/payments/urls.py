@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .webhook_handler import shiprocket_webhook, webhook_health_check
+from .webhook_handler import shiprocket_webhook
 
 urlpatterns = [
     path('create-order/', views.create_order, name='create-order'),
@@ -21,5 +21,5 @@ urlpatterns = [
     
     # Shiprocket Webhook Endpoints
     path('hook/update/', shiprocket_webhook, name='shiprocket-webhook'),
-    path('webhooks/shiprocket/health/', webhook_health_check, name='webhook-health-check'),
+    # path('webhooks/shiprocket/health/', webhook_health_check, name='webhook-health-check'),
 ]
