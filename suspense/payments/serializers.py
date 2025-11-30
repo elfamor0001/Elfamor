@@ -23,7 +23,11 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'razorpay_order_id', 'amount', 'currency', 'status', 'created_at',
             'items', 'payment', 'shipping_info', 'shipping_status', 'awb_number',
-            'tracking_url', 'courier_name', 'delivered_at', 'tracking_data'
+            'tracking_url', 'courier_name', 'delivered_at', 'tracking_data', 
+            'subtotal',
+            'shipment_charge',
+            'free_shipping',
+            'total_amount',
         ]
 
 
