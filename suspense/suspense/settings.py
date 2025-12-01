@@ -75,12 +75,12 @@ CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 # Security Settings for cross-origin
 CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+CSRF_COOKIE_SECURE = False  # Set to True since you're using HTTPS
+CSRF_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
 
-SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
+SESSION_COOKIE_SECURE = False    # Set to True for HTTPS
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+SESSION_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
 
 # Session settings
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
