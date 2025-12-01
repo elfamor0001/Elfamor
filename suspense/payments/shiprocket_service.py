@@ -431,112 +431,96 @@ def calculate_shipping(pickup_postcode, delivery_postcode, weight, length=10, br
         logger.error(f"Error in calculate_shipping helper: {str(e)}")
         return False, str(e)
 
-def create_shiprocket_order_from_django_order(django_order, preferred_courier: Optional[str] = None) -> Tuple[bool, Optional[Dict]]:
-    """
-    Create a Shiprocket order from a Django Order object
-    Fully corrected to match Shiprocket API requirements.
-    """
-
+def create_shiprocket_order_from_django_order(django_order, preferred_courier=None):
     try:
         service = ShiprocketService()
 
-        shipping_info = django_order.shipping_info or {}
+        shipping = django_order.shipping_info or {}
 
-        # -----------------------------
-        # 1. Name Handling
-        # -----------------------------
-        full_name = shipping_info.get("full_name") or django_order.user.get_full_name() or django_order.user.username
-        full_name = full_name.strip()
+        # ---------------------
+        # NAME FIX
+        # ---------------------
+        full_name = shipping.get("full_name") or django_order.user.get_full_name() or django_order.user.username
+        parts = full_name.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
 
-        name_parts = full_name.split(" ", 1)
-        billing_first_name = name_parts[0]
-        billing_last_name = name_parts[1] if len(name_parts) > 1 else ""
+        # ---------------------
+        # ADDRESS FIX
+        # ---------------------
+        address = shipping.get("address") or "Address"
+        city = shipping.get("city") or "Delhi"
+        state = shipping.get("state") or "Delhi"
+        country = "India"
 
-        # -----------------------------
-        # 2. Address Handling
-        # -----------------------------
-        billing_address = shipping_info.get("address") or ""
-        billing_city = shipping_info.get("city") or ""
-        billing_state = shipping_info.get("state") or ""
-        billing_pincode = shipping_info.get("pincode") or ""
-        billing_phone = shipping_info.get("phone") or ""
+        pincode = shipping.get("pincode")
+        if not pincode or len(str(pincode)) != 6:
+            pincode = 110001
+        else:
+            pincode = int(pincode)
 
-        # VALIDATION (Shiprocket rejects invalid placeholders)
-        if not billing_address:
-            billing_address = "Address"
+        phone = shipping.get("phone")
+        if not phone or len(str(phone)) < 10:
+            phone = 9999999999
+        else:
+            phone = int(phone)
 
-        if not billing_city:
-            billing_city = "City"
+        email = django_order.user.email or "noemail@example.com"
 
-        if not billing_state:
-            billing_state = "Delhi"   # Safe fallback
-
-        if not billing_pincode or len(billing_pincode) != 6:
-            billing_pincode = "110001"
-
-        if not billing_phone or len(billing_phone) < 10:
-            billing_phone = "9999999999"
-
-        billing_email = django_order.user.email or "noemail@example.com"
-
-        # -----------------------------
-        # 3. Prepare Order Items
-        # -----------------------------
+        # ---------------------
+        # ORDER ITEMS
+        # ---------------------
         order_items = []
         for item in django_order.items.all():
             order_items.append({
                 "name": item.product.name,
                 "sku": getattr(item.product, "sku", f"SKU{item.product.id}"),
-                "units": item.quantity,
-                "selling_price": float(item.price)
+                "units": int(item.quantity),
+                "selling_price": float(item.price),
+                "discount": "",
+                "tax": "",
+                "hsn": ""
             })
 
-        # -----------------------------
-        # 4. Weight & Dimensions
-        # -----------------------------
+        # ---------------------
+        # DIMENSIONS + WEIGHT
+        # ---------------------
         total_weight = sum([
-            getattr(item.product, "weight", getattr(settings, "PERFUME_BOTTLE_WEIGHT", 0.2)) * item.quantity
+            getattr(item.product, "weight", 0.2) * item.quantity
             for item in django_order.items.all()
         ])
+        if total_weight < 0.1:
+            total_weight = 0.1
 
-        total_weight = max(total_weight, 0.1)  # Shiprocket minimum weight
+        # DEFAULT dimensions (Shiprocket requires >0.5)
+        length = 10
+        breadth = 10
+        height = 10
 
-        # Dimensions (static defaults)
-        length = int(getattr(settings, "PACKAGE_LENGTH", 20))
-        breadth = int(getattr(settings, "PACKAGE_BREADTH", 15))
-        height = int(getattr(settings, "PACKAGE_HEIGHT", 5))
-
-        # -----------------------------
-        # 5. Pickup Location
-        # IMPORTANT!
-        # Must exactly match Shiprocket Dashboard name
-        # -----------------------------
-        pickup_location = getattr(settings, "SHIPROCKET_PICKUP_LOCATION", "Home")
-
-        # -----------------------------
-        # 6. Final Payload (clean & correct)
-        # -----------------------------
+        # ---------------------
+        # BUILD ORDER DATA (EXACT MATCH)
+        # ---------------------
         order_data = {
             "order_id": f"ORD{django_order.id}",
-            "order_date": django_order.created_at.strftime('%Y-%m-%d %H:%M'),
-            "pickup_location": pickup_location,
+            "order_date": django_order.created_at.strftime("%Y-%m-%d %H:%M"),
+            "pickup_location": "Home",
 
-            "payment_method": "Prepaid",  # change to COD if required
+            "comment": shipping.get("special_instructions", ""),
+
+            "billing_customer_name": first_name,
+            "billing_last_name": last_name,
+            "billing_address": address,
+            "billing_address_2": "",
+            "billing_city": city,
+            "billing_pincode": pincode,
+            "billing_state": state,
+            "billing_country": country,
+            "billing_email": email,
+            "billing_phone": phone,
+
             "shipping_is_billing": True,
 
-            # Billing
-            "billing_customer_name": billing_first_name,
-            "billing_last_name": billing_last_name,
-            "billing_address": billing_address,
-            "billing_address_2": "",
-            "billing_city": billing_city,
-            "billing_state": billing_state,
-            "billing_country": "India",
-            "billing_pincode": billing_pincode,
-            "billing_email": billing_email,
-            "billing_phone": billing_phone,
-
-            # Shipping empty since shipping_is_billing = True
+            # MUST SEND EMPTY (your working curl does it)
             "shipping_customer_name": "",
             "shipping_last_name": "",
             "shipping_address": "",
@@ -549,24 +533,27 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier: O
             "shipping_phone": "",
 
             "order_items": order_items,
+            "payment_method": "Prepaid",
+
+            "shipping_charges": 0,
+            "giftwrap_charges": 0,
+            "transaction_charges": 0,
+            "total_discount": 0,
 
             "sub_total": float(django_order.subtotal),
-            "length": length,
-            "breadth": breadth,
-            "height": height,
-            "weight": float(total_weight),
+
+            "length": float(length),
+            "breadth": float(breadth),
+            "height": float(height),
+            "weight": float(total_weight)
         }
 
-        # Add courier preference (optional)
-        if preferred_courier:
-            order_data["courier"] = preferred_courier
-
-        # -----------------------------
-        # 7. Send to Shiprocket
-        # -----------------------------
+        # ---------------------
+        # CALL SHIPROCKET
+        # ---------------------
         success, response = service.create_order(order_data)
         return success, response
 
     except Exception as e:
-        logger.error(f"Shiprocket order creation error: {str(e)}")
-        return False, {"error": str(e)}
+        logger.error(f"Shiprocket order error: {str(e)}")
+        return False, str(e)
