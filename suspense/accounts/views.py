@@ -1,7 +1,7 @@
 # accounts/views.py
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
@@ -112,7 +112,7 @@ def clear_verification_code(phone_number):
     cache_key = f"verification_code_{phone_number}"
     cache.delete(cache_key)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class RegisterView(View):
     def post(self, request):
         data = json.loads(request.body)
@@ -177,7 +177,7 @@ class RegisterView(View):
             'requires_verification': True
         }, status=201)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class SendVerificationCodeView(View):
     """Send verification code to phone number"""
     def post(self, request):
@@ -208,7 +208,7 @@ class SendVerificationCodeView(View):
         else:
             return JsonResponse({'error': message}, status=500)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class VerifyPhoneView(View):
     """Verify phone number with code"""
     def post(self, request):
@@ -258,7 +258,7 @@ class VerifyPhoneView(View):
                 'remaining_attempts': remaining_attempts
             }, status=400)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class PhoneLoginView(View):
     """Login with phone number and verification code"""
     def post(self, request):
@@ -312,7 +312,7 @@ class PhoneLoginView(View):
                 'remaining_attempts': remaining_attempts
             }, status=400)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class RequestLoginCodeView(View):
     """Request login verification code"""
     def post(self, request):
@@ -344,7 +344,7 @@ class RequestLoginCodeView(View):
             return JsonResponse({'error': message}, status=500)
 
 # Keep existing views for backward compatibility
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class LoginView(View):
     def post(self, request):
         data = json.loads(request.body)
@@ -373,7 +373,7 @@ class LoginView(View):
 
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
-@method_decorator(csrf_protect, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class LogoutView(View):
     def post(self, request):
         logout(request)
