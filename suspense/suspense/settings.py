@@ -27,17 +27,16 @@ ALLOWED_HOSTS = [
     'elfamor.vercel.app'
 ]
 
-# Update CSRF_TRUSTED_ORIGINS
 CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.pythonanywhere.com',
+    'http://elfamor.pythonanywhere.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'https://elfamor.com',
-    'https://www.elfamor.com',  # Make sure this is included
+    'https://www.elfamor.com',
     'https://elfamor.vercel.app',
-    'https://www.shiprocket.in',
-    'https://apiv2.shiprocket.in',
 ]
+
 
 # CORS Settings - FIXED
 CORS_ALLOWED_ORIGINS = [
@@ -52,10 +51,10 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 # Alternative: Allow all origins in development (be careful in production)
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
+# if DEBUG:
+#     CORS_ALLOW_ALL_ORIGINS = True
+# else:
+#     CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -89,11 +88,11 @@ SESSION_COOKIE_AGE = 1209600
 SESSION_COOKIE_DOMAIN = None
 
 # Disable production security for development if needed
-if DEBUG:
-    CSRF_COOKIE_SECURE = False
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SAMESITE = 'Lax'
-    SESSION_COOKIE_SAMESITE = 'Lax'
+# if DEBUG:
+#     CSRF_COOKIE_SECURE = False
+#     SESSION_COOKIE_SECURE = False
+#     CSRF_COOKIE_SAMESITE = 'Lax'
+#     SESSION_COOKIE_SAMESITE = 'Lax'
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = False
