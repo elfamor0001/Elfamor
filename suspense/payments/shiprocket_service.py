@@ -433,115 +433,140 @@ def calculate_shipping(pickup_postcode, delivery_postcode, weight, length=10, br
 
 def create_shiprocket_order_from_django_order(django_order, preferred_courier: Optional[str] = None) -> Tuple[bool, Optional[Dict]]:
     """
-    Helper function to create a Shiprocket order from a Django Order object
+    Create a Shiprocket order from a Django Order object
+    Fully corrected to match Shiprocket API requirements.
     """
+
     try:
         service = ShiprocketService()
-        
-        # Prepare order data from Django order
+
         shipping_info = django_order.shipping_info or {}
-        
-        # Extract and validate name (split into first and last name)
-        full_name = shipping_info.get('full_name', 'Customer').strip()
-        if not full_name:
-            full_name = django_order.user.username
-            
-        # Split name into first and last name
-        name_parts = full_name.split(' ', 1)
+
+        # -----------------------------
+        # 1. Name Handling
+        # -----------------------------
+        full_name = shipping_info.get("full_name") or django_order.user.get_full_name() or django_order.user.username
+        full_name = full_name.strip()
+
+        name_parts = full_name.split(" ", 1)
         billing_first_name = name_parts[0]
-        billing_last_name = name_parts[1] if len(name_parts) > 1 else ''
-        
-        # Validate other address fields
-        billing_phone = shipping_info.get('phone', '').strip()
-        if not billing_phone or len(billing_phone) < 10:
-            billing_phone = '9876543210'
-            
-        billing_address = shipping_info.get('address', '').strip()
+        billing_last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        # -----------------------------
+        # 2. Address Handling
+        # -----------------------------
+        billing_address = shipping_info.get("address") or ""
+        billing_city = shipping_info.get("city") or ""
+        billing_state = shipping_info.get("state") or ""
+        billing_pincode = shipping_info.get("pincode") or ""
+        billing_phone = shipping_info.get("phone") or ""
+
+        # VALIDATION (Shiprocket rejects invalid placeholders)
         if not billing_address:
-            billing_address = 'Address required'
-            
-        billing_city = shipping_info.get('city', '').strip()
+            billing_address = "Address"
+
         if not billing_city:
-            billing_city = 'City required'
-            
-        billing_state = shipping_info.get('state', '').strip()
+            billing_city = "City"
+
         if not billing_state:
-            billing_state = 'State required'
-            
-        billing_pincode = shipping_info.get('pincode', '').strip()
-        if not billing_pincode or len(billing_pincode) < 5:
-            billing_pincode = '110001'
-        
+            billing_state = "Delhi"   # Safe fallback
+
+        if not billing_pincode or len(billing_pincode) != 6:
+            billing_pincode = "110001"
+
+        if not billing_phone or len(billing_phone) < 10:
+            billing_phone = "9999999999"
+
+        billing_email = django_order.user.email or "noemail@example.com"
+
+        # -----------------------------
+        # 3. Prepare Order Items
+        # -----------------------------
         order_items = []
         for item in django_order.items.all():
             order_items.append({
-                'name': item.product.name,
-                'sku': getattr(item.product, 'sku', f'SKU{item.product.id}'),
-                'units': item.quantity,
-                'selling_price': str(item.price),
-                'discount': '0',  # ✅ Changed to string without decimals
-                'tax': '0',       # ✅ Changed to string without decimals
-                'hsn': ''         # ✅ Changed from 'hsn_code' to 'hsn'
+                "name": item.product.name,
+                "sku": getattr(item.product, "sku", f"SKU{item.product.id}"),
+                "units": item.quantity,
+                "selling_price": float(item.price)
             })
-        
-        total_weight = sum([getattr(item.product, 'weight', 0.2) * item.quantity for item in django_order.items.all()])
-        
+
+        # -----------------------------
+        # 4. Weight & Dimensions
+        # -----------------------------
+        total_weight = sum([
+            getattr(item.product, "weight", getattr(settings, "PERFUME_BOTTLE_WEIGHT", 0.2)) * item.quantity
+            for item in django_order.items.all()
+        ])
+
+        total_weight = max(total_weight, 0.1)  # Shiprocket minimum weight
+
+        # Dimensions (static defaults)
+        length = int(getattr(settings, "PACKAGE_LENGTH", 20))
+        breadth = int(getattr(settings, "PACKAGE_BREADTH", 15))
+        height = int(getattr(settings, "PACKAGE_HEIGHT", 5))
+
+        # -----------------------------
+        # 5. Pickup Location
+        # IMPORTANT!
+        # Must exactly match Shiprocket Dashboard name
+        # -----------------------------
+        pickup_location = getattr(settings, "SHIPROCKET_PICKUP_LOCATION", "Home")
+
+        # -----------------------------
+        # 6. Final Payload (clean & correct)
+        # -----------------------------
         order_data = {
-            'order_id': f"ORD{django_order.id}",
-            'order_date': django_order.created_at.strftime('%Y-%m-%d %H:%M'),  # ✅ Added time
-            'pickup_location': 'Home',  # ✅ Required field
-            'channel_id': '',              # ✅ Required but can be empty
-            'comment': shipping_info.get('special_instructions', ''),
-            
-            # ✅ Required fields from sample
-            'shipping_is_billing': 1,  # ✅ Changed from True to 1 (integer)
-            
-            # Billing details
-            'billing_customer_name': billing_first_name,
-            'billing_last_name': billing_last_name,  # ✅ Can be empty string
-            'billing_address': billing_address,
-            'billing_address_2': '',
-            'billing_city': billing_city,
-            'billing_pincode': billing_pincode,
-            'billing_state': billing_state,
-            'billing_country': 'India',
-            'billing_email': django_order.user.email,
-            'billing_phone': billing_phone,
-            
-            # Shipping details (empty when shipping_is_billing=1)
-            'shipping_customer_name': '',      # ✅ Empty when same as billing
-            'shipping_last_name': '',          # ✅ Empty when same as billing
-            'shipping_address': '',            # ✅ Empty when same as billing
-            'shipping_address_2': '',          # ✅ Empty when same as billing
-            'shipping_city': '',               # ✅ Empty when same as billing
-            'shipping_pincode': '',            # ✅ Empty when same as billing
-            'shipping_country': '',            # ✅ Empty when same as billing
-            'shipping_state': '',              # ✅ Empty when same as billing
-            'shipping_email': '',              # ✅ Empty when same as billing
-            'shipping_phone': '',              # ✅ Empty when same as billing
-            
-            'order_items': order_items,
-            'payment_method': 'Prepaid',  # ✅ Use 'COD' if cash on delivery
-            'shipping_charges': '0',
-            'giftwrap_charges': '0',
-            'transaction_charges': '0',
-            'total_discount': '0',
-            'sub_total': str(django_order.amount),
-            'length': '8',
-            'breadth': '10',
-            'height': '15',
-            'weight': str(max(total_weight, 0.1))
+            "order_id": f"ORD{django_order.id}",
+            "order_date": django_order.created_at.strftime('%Y-%m-%d %H:%M'),
+            "pickup_location": pickup_location,
+
+            "payment_method": "Prepaid",  # change to COD if required
+            "shipping_is_billing": True,
+
+            # Billing
+            "billing_customer_name": billing_first_name,
+            "billing_last_name": billing_last_name,
+            "billing_address": billing_address,
+            "billing_address_2": "",
+            "billing_city": billing_city,
+            "billing_state": billing_state,
+            "billing_country": "India",
+            "billing_pincode": billing_pincode,
+            "billing_email": billing_email,
+            "billing_phone": billing_phone,
+
+            # Shipping empty since shipping_is_billing = True
+            "shipping_customer_name": "",
+            "shipping_last_name": "",
+            "shipping_address": "",
+            "shipping_address_2": "",
+            "shipping_city": "",
+            "shipping_pincode": "",
+            "shipping_country": "",
+            "shipping_state": "",
+            "shipping_email": "",
+            "shipping_phone": "",
+
+            "order_items": order_items,
+
+            "sub_total": float(django_order.subtotal),
+            "length": length,
+            "breadth": breadth,
+            "height": height,
+            "weight": float(total_weight),
         }
-        # If caller provided a preferred courier, include it (Shiprocket may accept courier_preference or similar keys)
+
+        # Add courier preference (optional)
         if preferred_courier:
-            # include a best-effort field; Shiprocket's adhoc API may accept courier or courier_id
-            order_data['preferred_courier'] = preferred_courier
-        
-        logger.info(f"Attempting to create Shiprocket order for order {django_order.id} (preferred_courier={preferred_courier})")
+            order_data["courier"] = preferred_courier
+
+        # -----------------------------
+        # 7. Send to Shiprocket
+        # -----------------------------
         success, response = service.create_order(order_data)
         return success, response
-        
+
     except Exception as e:
-        logger.error(f"Error creating Shiprocket order from Django order: {str(e)}")
-        return False, None
-    
+        logger.error(f"Shiprocket order creation error: {str(e)}")
+        return False, {"error": str(e)}
