@@ -16,7 +16,7 @@ import json
 import random
 import requests
 from .models import CustomUser  
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.utils.text import slugify
 from django.core.cache import cache
 from django.utils import timezone
@@ -379,9 +379,10 @@ class LogoutView(View):
         logout(request)
         return JsonResponse({'message': 'Logged out successfully'})
 
+@ensure_csrf_cookie
 def get_csrf_token(request):
-    token = get_token(request)
-    return JsonResponse({'csrfToken': token})
+    return JsonResponse({"detail": "cookie set"})
+
 
 def session_view(request):
     if request.user.is_authenticated:
