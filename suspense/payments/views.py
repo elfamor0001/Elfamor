@@ -734,15 +734,11 @@ def create_shiprocket_order_async(order_id):
         delivery_pincode = shipping_info.get('pincode')
         
         # Calculate total weight from order items
-        bottle_weight_kg = getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)
-        packaging_buffer = getattr(settings, 'PACKAGE_WEIGHT_BUFFER', 0.1)
-
-# Calculate total weight the same way as in create_order
-        total_quantity = sum(item.quantity for item in order.items.all())
-        total_weight = (total_quantity * bottle_weight_kg) + packaging_buffer
-
-        logger.info(f"Calculating weight for Shiprocket order: {total_quantity} bottles, weight: {total_weight:.3f}kg")
-                
+        total_weight = sum([
+            getattr(item.product, 'weight', getattr(settings, 'PERFUME_BOTTLE_WEIGHT', 0.2)) * item.quantity 
+            for item in order.items.all()
+        ])
+        
         preferred_courier = None
         if delivery_pincode:
             success, shipping_data = calculate_shipping_charges_helper(
