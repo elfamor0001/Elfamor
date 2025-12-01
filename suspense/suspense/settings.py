@@ -35,15 +35,9 @@ CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.com',
     'https://www.elfamor.com',  # Make sure this is included
     'https://elfamor.vercel.app',
+    'https://www.shiprocket.in',
+    'https://apiv2.shiprocket.in',
 ]
-
-# CSRF_TRUSTED_ORIGINS += [
-#     "https://elfamor.vercel.app:443",
-#     "https://elfamor.com:443",
-#     "https://www.elfamor.com:443",
-#     "https://elfamor.pythonanywhere.com:443",
-# ]
-
 
 # CORS Settings - FIXED
 CORS_ALLOWED_ORIGINS = [
@@ -55,10 +49,13 @@ CORS_ALLOWED_ORIGINS = [
     'https://elfamor.com',
     'https://www.elfamor.com',  # CRITICAL: Add this
     'https://elfamor.vercel.app',
-    'https://elfamor.vercel.app:443',
 ]
 
-
+# Alternative: Allow all origins in development (be careful in production)
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -80,19 +77,16 @@ CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 # Security Settings for cross-origin
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = None # Changed to None for cross-origin
-CSRF_COOKIE_DOMAIN = "elfamor.pythonanywhere.com"
-
+CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
 
 SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = None  # Changed to None for cross-origin
+SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
 
 # Session settings
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_AGE = 1209600
-SESSION_COOKIE_DOMAIN = "elfamor.pythonanywhere.com"
-
+SESSION_COOKIE_DOMAIN = None
 
 # Disable production security for development if needed
 # if DEBUG:
