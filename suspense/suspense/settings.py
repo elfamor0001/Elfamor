@@ -8,7 +8,7 @@ import cloudinary.api
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_URL = 'http://localhost:5173'
+FRONTEND_URL = 'https://www.elfamor.com'
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -79,19 +79,19 @@ CORS_ALLOW_HEADERS = [
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 # Security Settings for cross-origin
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
-CSRF_COOKIE_DOMAIN = ".pythonanywhere.com"
+# CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SECURE = False  # Set to True since you're using HTTPS
+# CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+# CSRF_COOKIE_DOMAIN = ".pythonanywhere.com"
 
-SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+SESSION_COOKIE_SECURE = False    # Set to True for HTTPS
+# SESSION_COOKIE_HTTPONLY = True
+# SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
 
 # Session settings
-SESSION_ENGINE = "django.contrib.sessions.backends.db"
-SESSION_COOKIE_AGE = 1209600
-SESSION_COOKIE_DOMAIN = ".pythonanywhere.com"
+# SESSION_ENGINE = "django.contrib.sessions.backends.db"
+# SESSION_COOKIE_AGE = 1209600
+# SESSION_COOKIE_DOMAIN = ".pythonanywhere.com"
 
 # Disable production security for development if needed
 # if DEBUG:
@@ -100,12 +100,14 @@ SESSION_COOKIE_DOMAIN = ".pythonanywhere.com"
 #     CSRF_COOKIE_SAMESITE = 'Lax'
 #     SESSION_COOKIE_SAMESITE = 'Lax'
 
-if not DEBUG:
-    SECURE_SSL_REDIRECT = False
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# if not DEBUG:
+#     SECURE_SSL_REDIRECT = False
+#     SECURE_HSTS_SECONDS = 31536000
+#     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+#     SECURE_HSTS_PRELOAD = True
+#     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
 
 INSTALLED_APPS = [
     'django.contrib.admin',
