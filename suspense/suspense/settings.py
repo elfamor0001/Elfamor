@@ -37,6 +37,14 @@ CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.vercel.app',
 ]
 
+CSRF_TRUSTED_ORIGINS += [
+    "https://elfamor.vercel.app:443",
+    "https://elfamor.com:443",
+    "https://www.elfamor.com:443",
+    "https://elfamor.pythonanywhere.com:443",
+]
+
+
 # CORS Settings - FIXED
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
@@ -47,6 +55,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://elfamor.com',
     'https://www.elfamor.com',  # CRITICAL: Add this
     'https://elfamor.vercel.app',
+    'https://elfamor.vercel.app:443',
 ]
 
 
