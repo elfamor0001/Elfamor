@@ -1,7 +1,7 @@
 # accounts/views.py
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_protect
 from django.utils.decorators import method_decorator
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
@@ -379,9 +379,9 @@ class LogoutView(View):
         logout(request)
         return JsonResponse({'message': 'Logged out successfully'})
 
-@ensure_csrf_cookie
 def get_csrf_token(request):
-    return JsonResponse({"csrftoken": get_token(request)})
+    token = get_token(request)
+    return JsonResponse({'csrfToken': token})
 
 def session_view(request):
     if request.user.is_authenticated:

@@ -128,6 +128,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # This must be first
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'suspense.middleware.cookie_middleware.SameSiteNoneMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
