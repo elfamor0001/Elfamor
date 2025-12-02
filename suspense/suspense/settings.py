@@ -7,7 +7,7 @@ import cloudinary.api
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_URL = 'http://localhost:5173'
+FRONTEND_URL = 'https://www.elfamor.com'
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -24,7 +24,8 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
     'elfamor.com',
     'www.elfamor.com',  # Add this
-    'elfamor.vercel.app'
+    'elfamor.vercel.app',
+    'api.elfamor.com',
 ]
 
 # Update CSRF_TRUSTED_ORIGINS
@@ -37,6 +38,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://elfamor.vercel.app',
     'https://www.shiprocket.in',
     'https://apiv2.shiprocket.in',
+    'https://api.elfamor.com',
 ]
 
 # CORS Settings - FIXED
@@ -49,6 +51,8 @@ CORS_ALLOWED_ORIGINS = [
     'https://elfamor.com',
     'https://www.elfamor.com',  # CRITICAL: Add this
     'https://elfamor.vercel.app',
+    'https://api.elfamor.com',
+
 ]
 
 # Alternative: Allow all origins in development (be careful in production)
@@ -77,16 +81,18 @@ CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 # Security Settings for cross-origin
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+CSRF_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
 
 SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'None'  # Changed to None for cross-origin
+SESSION_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
 
 # Session settings
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_AGE = 1209600
-SESSION_COOKIE_DOMAIN = None
+SESSION_COOKIE_DOMAIN = '.elfamor.com'
+
+CSRF_COOKIE_DOMAIN = '.elfamor.com'
 
 # Disable production security for development if needed
 # if DEBUG:
