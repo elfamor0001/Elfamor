@@ -88,6 +88,7 @@ def generate_verification_code():
 def store_verification_code(phone_number, code):
     """Store verification code in cache with 10-minute expiry"""
     cache_key = f"verification_code_{phone_number}"
+    print(f"DEBUG: Storing code {code} for {phone_number} with key {cache_key}")
     cache.set(cache_key, {
         'code': code,
         'attempts': 0,
@@ -97,7 +98,9 @@ def store_verification_code(phone_number, code):
 def get_verification_data(phone_number):
     """Get verification data from cache"""
     cache_key = f"verification_code_{phone_number}"
-    return cache.get(cache_key)
+    data = cache.get(cache_key)
+    print(f"DEBUG: Getting data for {phone_number}: {data}")
+    return data
 
 def increment_verification_attempts(phone_number):
     """Increment verification attempts"""
@@ -106,6 +109,7 @@ def increment_verification_attempts(phone_number):
     if data:
         data['attempts'] += 1
         cache.set(cache_key, data, 600)
+        print(f"DEBUG: Incremented attempts for {phone_number}: {data['attempts']}")
 
 def clear_verification_code(phone_number):
     """Clear verification code from cache"""
@@ -187,12 +191,7 @@ class SendVerificationCodeView(View):
         if not phone:
             return JsonResponse({'error': 'Phone number is required.'}, status=400)
         
-        # Check if user exists with this phone
-        try:
-            user = CustomUser.objects.get(phone=phone)
-        except CustomUser.DoesNotExist:
-            return JsonResponse({'error': 'No account found with this phone number.'}, status=404)
-        
+        # Remove user existence check - allow sending code for both registration and login
         # Generate and send verification code
         verification_code = generate_verification_code()
         store_verification_code(phone, verification_code)
@@ -270,21 +269,34 @@ class PhoneLoginView(View):
             return JsonResponse({'error': 'Phone and verification code are required.'}, status=400)
         
         # Get stored verification data
-        verification_data = get_verification_data(phone)
+        cache_key = f"verification_code_{phone}"
+        verification_data = cache.get(cache_key)
+        
+        print(f"DEBUG: Cache key: {cache_key}")
+        print(f"DEBUG: Verification data from cache: {verification_data}")
+        print(f"DEBUG: Received code: {verification_code}")
         
         if not verification_data:
+            # Check if there's any user with this phone
+            user_exists = CustomUser.objects.filter(phone=phone).exists()
+            print(f"DEBUG: User exists with phone {phone}: {user_exists}")
+            
             return JsonResponse({'error': 'Verification code expired or not found. Please request a new code.'}, status=400)
         
         # Check attempts limit
-        if verification_data['attempts'] >= 5:
+        if verification_data.get('attempts', 0) >= 5:
             clear_verification_code(phone)
             return JsonResponse({'error': 'Too many failed attempts. Please request a new code.'}, status=400)
         
         # Verify code
-        if verification_data['code'] == verification_code:
+        stored_code = verification_data.get('code')
+        print(f"DEBUG: Stored code in cache: {stored_code}")
+        
+        if stored_code == verification_code:
             # Code is correct - find user and log them in
             try:
                 user = CustomUser.objects.get(phone=phone)
+                print(f"DEBUG: Found user: {user.email}")
 
                 # Log the user in (do not block by is_active for phone OTP login)
                 login(request, user)
@@ -301,16 +313,21 @@ class PhoneLoginView(View):
                 })
 
             except CustomUser.DoesNotExist:
+                print(f"DEBUG: No user found with phone {phone}")
                 return JsonResponse({'error': 'No account found with this phone number.'}, status=404)
         else:
             # Increment attempts
             increment_verification_attempts(phone)
-            remaining_attempts = 5 - (verification_data['attempts'] + 1)
+            attempts = verification_data.get('attempts', 0)
+            remaining_attempts = 5 - (attempts + 1)
+            
+            print(f"DEBUG: Code mismatch. Attempt {attempts + 1}/5")
             
             return JsonResponse({
                 'error': f'Invalid verification code. {remaining_attempts} attempts remaining.',
                 'remaining_attempts': remaining_attempts
             }, status=400)
+
 
 @method_decorator(csrf_protect, name='dispatch')
 class RequestLoginCodeView(View):

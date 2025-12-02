@@ -282,3 +282,10 @@ PERFUME_BOTTLE_HEIGHT = 15
 PERFUME_BOTTLE_BREADTH = 10
 PACKAGE_WEIGHT_BUFFER = 0.1
 MAX_BOTTLES_PER_PACKAGE = 3
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
