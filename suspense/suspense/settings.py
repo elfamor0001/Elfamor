@@ -285,7 +285,7 @@ MAX_BOTTLES_PER_PACKAGE = 3
 
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-        'LOCATION': 'my_cache_table',
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': str(BASE_DIR / 'django_cache'),
     }
 }
