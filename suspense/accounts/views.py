@@ -229,14 +229,16 @@ class SendVerificationCodeView(View):
         print(f"SMS send success: {success}, message: {message}")
         print("=== END SEND ===\n")
         
-        if success:
-            return JsonResponse({
-                'message': 'Verification code sent successfully.',
-                'phone': phone,
-                'cache_key_used': cache_key  # Send this back for debugging
-            })
-        else:
-            return JsonResponse({'error': message}, status=500)
+        if not success:
+            print(f"SMS sending failed: {message}")
+
+        return JsonResponse({
+            'message': 'Verification code sent successfully.',
+            'phone': phone,
+            'cache_key_used': cache_key,
+            'sms_sent': success,
+            'sms_error': message if not success else None
+        })
         
 @method_decorator(csrf_protect, name='dispatch')
 class VerifyPhoneView(View):
@@ -409,13 +411,14 @@ class RequestLoginCodeView(View):
         # Send SMS via Brevo
         success, message = sms_service.send_verification_code(phone, verification_code)
         
-        if success:
-            return JsonResponse({
-                'message': 'Login code sent successfully.',
-                'phone': phone
-            })
-        else:
-            return JsonResponse({'error': message}, status=500)
+        if not success:
+            print(f"SMS sending failed: {message}")
+
+        return JsonResponse({
+            'message': 'Login code sent successfully.',
+            'phone': phone,
+            'sms_sent': success
+        })
 
 # Keep existing views for backward compatibility
 @method_decorator(csrf_protect, name='dispatch')
