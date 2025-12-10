@@ -85,15 +85,27 @@ def generate_verification_code():
     """Generate a 6-digit verification code"""
     return str(random.randint(100000, 999999))
 
-def store_verification_code(phone_number, code):
+def store_verification_code(phone, code):
     """Store verification code in cache with 10-minute expiry"""
-    cache_key = f"verification_code_{phone_number}"
-    print(f"DEBUG: Storing code {code} for {phone_number} with key {cache_key}")
+    # DON'T modify the phone number here!
+    cache_key = f"verification_code_{phone}"
+    
+    print(f"DEBUG store_verification_code:")
+    print(f"  Input phone: '{phone}'")
+    print(f"  Generated cache key: '{cache_key}'")
+    print(f"  Code to store: {code}")
+    
     cache.set(cache_key, {
         'code': code,
         'attempts': 0,
-        'created_at': timezone.now().isoformat()
+        'created_at': timezone.now().isoformat(),
+        'phone_received': phone  # Store what we received
     }, 600)  # 10 minutes
+    
+    # Verify storage
+    stored = cache.get(cache_key)
+    print(f"  Stored data: {stored}")
+    return True
 
 def get_verification_data(phone_number):
     """Get verification data from cache"""
@@ -188,25 +200,44 @@ class SendVerificationCodeView(View):
         data = json.loads(request.body)
         phone = data.get('phone')
         
+        print(f"\n=== SEND VERIFICATION CODE ===")
+        print(f"Received phone from frontend: '{phone}'")
+        print(f"Type: {type(phone)}, Length: {len(phone)}")
+        
         if not phone:
             return JsonResponse({'error': 'Phone number is required.'}, status=400)
         
-        # Remove user existence check - allow sending code for both registration and login
         # Generate and send verification code
         verification_code = generate_verification_code()
+        
+        # Log BEFORE storing
+        print(f"Generated code: {verification_code}")
+        print(f"Attempting to store for phone: '{phone}'")
+        
+        # Store the code
         store_verification_code(phone, verification_code)
+        
+        # Immediately verify storage
+        cache_key = f"verification_code_{phone}"
+        stored_data = cache.get(cache_key)
+        print(f"Immediate cache check - Key: '{cache_key}'")
+        print(f"Stored data: {stored_data}")
         
         # Send SMS via Brevo
         success, message = sms_service.send_verification_code(phone, verification_code)
         
+        print(f"SMS send success: {success}, message: {message}")
+        print("=== END SEND ===\n")
+        
         if success:
             return JsonResponse({
                 'message': 'Verification code sent successfully.',
-                'phone': phone
+                'phone': phone,
+                'cache_key_used': cache_key  # Send this back for debugging
             })
         else:
             return JsonResponse({'error': message}, status=500)
-
+        
 @method_decorator(csrf_protect, name='dispatch')
 class VerifyPhoneView(View):
     """Verify phone number with code"""
@@ -264,25 +295,51 @@ class PhoneLoginView(View):
         data = json.loads(request.body)
         phone = data.get('phone')
         verification_code = data.get('verification_code')
-        
+
+        print(f"\n=== PHONE LOGIN ATTEMPT ===")
+        print(f"Received phone: '{phone}'")
+        print(f"Received code: '{verification_code}'")
+
         if not all([phone, verification_code]):
             return JsonResponse({'error': 'Phone and verification code are required.'}, status=400)
         
-        # Get stored verification data
-        cache_key = f"verification_code_{phone}"
-        verification_data = cache.get(cache_key)
+        possible_keys = [
+            f"verification_code_{phone}",  # As sent
+            f"verification_code_{phone.replace(' ', '')}",  # Without spaces
+            f"verification_code_+91{phone.replace(' ', '')}",  # With +91
+            f"verification_code_91{phone.replace(' ', '')}",  # With 91
+        ]
         
-        print(f"DEBUG: Cache key: {cache_key}")
-        print(f"DEBUG: Verification data from cache: {verification_data}")
-        print(f"DEBUG: Received code: {verification_code}")
+        verification_data = None
+        used_key = None
+        
+        print("Checking cache with these keys:")
+        for key in possible_keys:
+            data = cache.get(key)
+            print(f"  Key: '{key}' -> Data: {data}")
+            if data and not verification_data:
+                verification_data = data
+                used_key = key
+        
         
         if not verification_data:
-            # Check if there's any user with this phone
-            user_exists = CustomUser.objects.filter(phone=phone).exists()
-            print(f"DEBUG: User exists with phone {phone}: {user_exists}")
+            # Try to list all cache keys (works for some backends)
+            print("Cache miss! Available cache keys (attempt):")
+            try:
+                # For Redis or similar
+                import django.core.cache
+                cache_instance = django.core.cache.cache
+                if hasattr(cache_instance, 'keys'):
+                    all_keys = cache_instance.keys('verification_code_*')
+                    print(f"  All verification keys: {all_keys}")
+            except:
+                print("  Could not list all keys")
             
             return JsonResponse({'error': 'Verification code expired or not found. Please request a new code.'}, status=400)
         
+        print(f"Found data with key: '{used_key}'")
+        print(f"Stored data: {verification_data}")
+
         # Check attempts limit
         if verification_data.get('attempts', 0) >= 5:
             clear_verification_code(phone)
@@ -290,7 +347,7 @@ class PhoneLoginView(View):
         
         # Verify code
         stored_code = verification_data.get('code')
-        print(f"DEBUG: Stored code in cache: {stored_code}")
+        # print(f"DEBUG: Stored code in cache: {stored_code}")
         
         if stored_code == verification_code:
             # Code is correct - find user and log them in
