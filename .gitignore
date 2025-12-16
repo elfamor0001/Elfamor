@@ -27,3 +27,6 @@ dist/
 # Virtual Env
 venv/
 env/
+
+Elfamor/
+diagrams/
