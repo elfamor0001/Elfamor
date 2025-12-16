@@ -102,7 +102,7 @@ else:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     # Allow cross-site cookies for testing localhost frontend with production backend
-    ALLOW_CROSS_SITE_COOKIES = config('ALLOW_CROSS_SITE_COOKIES', default=False, cast=bool)
+    ALLOW_CROSS_SITE_COOKIES = config('ALLOW_CROSS_SITE_COOKIES', default=True, cast=bool)
 
     if ALLOW_CROSS_SITE_COOKIES:
         CSRF_COOKIE_SAMESITE = 'None'
