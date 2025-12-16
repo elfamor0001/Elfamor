@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     'elfamor.vercel.app',
     'api.elfamor.com',
     '2c9122324c4b.ngrok-free.app',
+    '59304da7e356.ngrok-free.app'
 ]
 
 # Update CSRF_TRUSTED_ORIGINS
@@ -45,6 +46,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://www.shiprocket.in',
     'https://apiv2.shiprocket.in',
     'https://api.elfamor.com',
+    'https://59304da7e356.ngrok-free.app'
 ]
 
 # CORS Settings - FIXED
@@ -58,6 +60,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://www.elfamor.com',  # CRITICAL: Add this
     'https://elfamor.vercel.app',
     'https://api.elfamor.com',
+    'https://59304da7e356.ngrok-free.app'
 
 ]
 
