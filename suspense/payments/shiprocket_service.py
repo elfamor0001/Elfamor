@@ -463,9 +463,12 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         if not phone or len(str(phone)) < 10:
             phone = 9999999999
         else:
+            # Send as int as per user preference
             phone = int(phone)
+            
+        logger.info(f"Final phone sent to Shiprocket: {phone} (Type: {type(phone)})")
 
-        email = django_order.user.email or "noemail@example.com"
+        email = shipping.get("email") or django_order.user.email or "noemail@example.com"
 
         # ---------------------
         # ORDER ITEMS

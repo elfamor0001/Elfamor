@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.contrib.auth import get_user_model # ✅ ADDED for user creation
 from products.models import Product
 from .models import Order, OrderItem, Payment
 from .serializers import (
@@ -79,6 +80,18 @@ def handle_successful_payment(order, payment_data):
 
         logger.info(f"Payment processed successfully for order {order.id}")
 
+        # ✅ SEND ORDER CONFIRMATION EMAIL VIA BREVO
+        try:
+            from accounts.utils import BrevoEmailService
+            email_service = BrevoEmailService()
+            # Run in background to avoid blocking response
+            thread = threading.Thread(target=email_service.send_order_confirmation, args=(order,))
+            thread.daemon = True
+            thread.start()
+            logger.info(f"Order confirmation email initiated for order {order.id}")
+        except Exception as email_error:
+            logger.error(f"Error initiating order confirmation email: {str(email_error)}")
+
         return {
             'success': True,
             'message': 'Payment verified successfully',
@@ -118,8 +131,9 @@ def decrease_order_stock(order):
         raise e
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def create_order(request):
+    User = get_user_model()
     idempotency_key = request.headers.get('Idempotency-Key')
     if idempotency_key and Order.objects.filter(idempotency_key=idempotency_key).exists():
         return Response({'error': 'Duplicate request'}, status=status.HTTP_409_CONFLICT)
@@ -137,7 +151,95 @@ def create_order(request):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            logger.info(f"Creating order for user {request.user.id} with delivery pincode: {delivery_pincode}")
+            # ✅ HANDLE USER IDENTITY (GUEST VS AUTH)
+            order_user = None
+            if request.user.is_authenticated:
+                order_user = request.user
+                logger.info(f"Creating order for authenticated user {order_user.id}")
+            else:
+                # GUEST: Find or Create user by phone
+                # Prioritize explicit 'account_phone' if provided (from the top login field)
+                # Fallback to 'shipping_info.phone' (recipient phone) only if no account_phone
+                account_phone = request.data.get('account_phone')
+                shipping_phone = shipping_info.get('phone')
+                
+                # Determine which phone to use for the USER ACCOUNT
+                user_phone = account_phone if account_phone else shipping_phone
+                
+                if not user_phone:
+                    return Response({'error': 'Phone number required for guest checkout'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Clean phone
+                user_phone = ''.join(filter(str.isdigit, str(user_phone)))[-10:]
+                
+                # Check if user exists with this phone
+                try:
+                    order_user = User.objects.get(phone=user_phone)
+                    logger.info(f"Found existing user {order_user.id} for guest phone {user_phone}")
+                except User.DoesNotExist:
+                    # Create new user for guest
+                    username = f"u_{user_phone}"
+                    # Use a unique placeholder email to avoid "Duplicate Email" errors if the shipping email 
+                    # is already used by another account.
+                    # We store the REAL email in the Order's shipping_info for notifications.
+                    account_email = f"{user_phone}@noemail.elfamor.com"
+                    
+                    order_user = User.objects.create_user(
+                        username=username,
+                        phone=user_phone,
+                        email=account_email,
+                        password=None # Unusable password
+                    )
+                    order_user.full_name = shipping_info.get('full_name', '')
+                    order_user.save()
+                    logger.info(f"Created new user {order_user.id} for guest phone {user_phone}")
+
+            # ✅ LINK GUEST CART TO USER
+            # This ensures that when handle_successful_payment tries to clear Cart.objects.filter(user=order.user),
+            # it actually finds the cart.
+            if order_user and not request.user.is_authenticated:
+                try:
+                    from carts.models import Cart
+                    session_id = request.session.session_key
+                    if session_id:
+                        # Find the anonymous cart
+                        guest_cart = Cart.objects.filter(session_id=session_id, user__isnull=True).first()
+                        if guest_cart:
+                            # Check if user already has a DIFFERENT cart (orphaned) and remove it to avoid OneToOne conflict
+                            # We prioritize the ACTIVE guest cart that reflects what they are buying right now.
+                            old_user_cart = Cart.objects.filter(user=order_user).first()
+                            if old_user_cart and old_user_cart != guest_cart:
+                                old_user_cart.delete()
+                            
+                            guest_cart.user = order_user
+                            guest_cart.save()
+                            logger.info(f"Linked guest cart {guest_cart.id} to user {order_user.id}")
+                except Exception as e:
+                    logger.error(f"Error linking guest cart to user: {e}")
+
+            # ✅ SAVE EMAIL / NAME IF MISSING OR PLACEHOLDER
+            email = shipping_info.get('email')
+            full_name = shipping_info.get('full_name')
+            
+            # User update logic DISABLED as per request:
+            # "use the email sent by user in the form for creating the order and send to shiprockeet dont update that on user account"
+            '''
+            if order_user:
+                 save_needed = False
+                 # Update email if better one provided
+                 if email and (not order_user.email or '@noemail.elfamor.com' in order_user.email or '@example.com' in order_user.email):
+                     order_user.email = email
+                     save_needed = True
+                 
+                 # Update name if missing
+                 if full_name and not order_user.full_name:
+                     order_user.full_name = full_name
+                     save_needed = True
+                     
+                 if save_needed:
+                     order_user.save()
+                     logger.info(f"Updated profile for user {order_user.id}")
+            '''
 
             # ✅ VALIDATE STOCK AVAILABILITY
             stock_validation_errors = []
@@ -281,7 +383,7 @@ def create_order(request):
 
                 # ✅ CREATE ORDER IN DATABASE
                 order = Order.objects.create(
-                    user=request.user,
+                    user=order_user,
                     razorpay_order_id=razorpay_order['id'],
                     amount=total_amount,
                     currency='INR',
@@ -336,7 +438,7 @@ def create_order(request):
 # ✅ REMOVE THE DUPLICATE calculate_shipping VIEW FUNCTION - KEEP ONLY THE SHIPPING CALCULATION VIEW BELOW
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def calculate_shipping_view(request):
     """
     Calculate shipping charges based on delivery pincode - SURFACE COURIERS ONLY
@@ -409,7 +511,7 @@ def calculate_shipping_view(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def verify_payment(request):
     """
     Step 6: Verify payment signature and update order status
@@ -431,8 +533,7 @@ def verify_payment(request):
             # Get order from database
             order = get_object_or_404(
                 Order,
-                razorpay_order_id=data['razorpay_order_id'],
-                user=request.user
+                razorpay_order_id=data['razorpay_order_id']
             )
 
             # Check if order is already paid (prevents duplicate processing)
@@ -465,7 +566,7 @@ def verify_payment(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def check_payment_status(request):
     """
     Check payment status for an order - called when page reloads or user returns
@@ -477,7 +578,7 @@ def check_payment_status(request):
         return Response({'error': 'Order ID required'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        order = Order.objects.get(razorpay_order_id=order_id, user=request.user)
+        order = Order.objects.get(razorpay_order_id=order_id)
 
         # If order is already paid, return success
         if order.status == 'paid':
@@ -668,12 +769,14 @@ def order_history(request):
     return Response(serializer.data)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def order_detail(request, order_id):
     """
     Get specific order details
     """
-    order = get_object_or_404(Order, id=order_id, user=request.user)
+    # Allow public access for now to support guest checkout success page
+    # In a real app, we should use a secure token or session ownership
+    order = get_object_or_404(Order, id=order_id)
     serializer = OrderSerializer(order)
     return Response(serializer.data)
 

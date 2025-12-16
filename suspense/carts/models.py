@@ -4,15 +4,17 @@ from products.models import Product
 
 
 class Cart(models.Model):
-	"""A shopping cart tied to a user."""
+	"""A shopping cart tied to a user or a session."""
 	user = models.OneToOneField(
-		settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='cart'
+		settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='cart',
+		null=True, blank=True
 	)
+	session_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
 	def __str__(self):
-		return f"Cart ({self.user})"
+		return f"Cart ({self.user if self.user else self.session_id})"
 
 	@property
 	def total(self):

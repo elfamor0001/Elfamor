@@ -7,14 +7,19 @@ import cloudinary.api
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_URL = 'https://www.elfamor.com'
-AUTH_USER_MODEL = 'accounts.CustomUser'
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config('SECRET_KEY')
 
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
+
+if DEBUG:
+    FRONTEND_URL = 'http://localhost:5173'
+else:
+    FRONTEND_URL = 'https://www.elfamor.com'
 
 # Update ALLOWED_HOSTS for local development
 ALLOWED_HOSTS = [
@@ -26,6 +31,7 @@ ALLOWED_HOSTS = [
     'www.elfamor.com',  # Add this
     'elfamor.vercel.app',
     'api.elfamor.com',
+    '2c9122324c4b.ngrok-free.app',
 ]
 
 # Update CSRF_TRUSTED_ORIGINS
@@ -79,20 +85,24 @@ CORS_ALLOW_HEADERS = [
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 # Security Settings for cross-origin
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = True  # Set to True since you're using HTTPS
-CSRF_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
-
-SESSION_COOKIE_SECURE = True    # Set to True for HTTPS
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'  # Changed to None for cross-origin
-
 # Session settings
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_AGE = 1209600
-SESSION_COOKIE_DOMAIN = '.elfamor.com'
 
-CSRF_COOKIE_DOMAIN = '.elfamor.com'
+if DEBUG:
+    SESSION_COOKIE_DOMAIN = None
+    CSRF_COOKIE_DOMAIN = None
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SAMESITE = 'Lax'
+else:
+    SESSION_COOKIE_DOMAIN = '.elfamor.com'
+    CSRF_COOKIE_DOMAIN = '.elfamor.com'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SAMESITE = 'Lax'
 
 # Disable production security for development if needed
 # if DEBUG:
@@ -272,7 +282,7 @@ BREVO_EMAIL_SENDER = config('BREVO_EMAIL_SENDER')
 SHIPROCKET_EMAIL = config('SHIPROCKET_EMAIL')
 SHIPROCKET_PASSWORD = config('SHIPROCKET_PASSWORD')
 SHIPROCKET_PICKUP_PINCODE = config('SHIPROCKET_PICKUP_PINCODE')
-SHIPROCKET_WEBHOOK_TOKEN = "hehe"
+SHIPROCKET_WEBHOOK_TOKEN = config('SHIPROCKET_WEBHOOK_TOKEN', default='your-secure-token-here')
 
 
 # Product Specifications

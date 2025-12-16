@@ -117,6 +117,30 @@ def handle_shiprocket_webhook(payload):
 
         order.save()
 
+        # ✅ SEND SHIPPING UPDATE EMAIL IF STATUS CHANGED
+        if changes.get('shipping_status'):
+            try:
+                from accounts.utils import BrevoEmailService
+                import threading
+                email_service = BrevoEmailService()
+                
+                # Get tracking URL if available
+                tracking_url = order.tracking_url
+                if not tracking_url and awb:
+                     # Fallback to generic tracking if specific URL missing
+                    tracking_url = f"https://www.shiprocket.in/shipment-tracking/{awb}"
+                
+                # Run in background
+                thread = threading.Thread(
+                    target=email_service.send_shipping_update, 
+                    args=(order, mapped_status.title().replace('_', ' '), tracking_url)
+                )
+                thread.daemon = True
+                thread.start()
+                logger.info(f"Shipping update email initiated for order {order.id} (Status: {mapped_status})")
+            except Exception as email_error:
+                logger.error(f"Error initiating shipping update email: {str(email_error)}")
+
         logger.info(f"Shiprocket webhook processed: Shiprocket Order {sr_order_id}, Changes: {changes}")
         return True, f"Status updated to {current_status}"
 

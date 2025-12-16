@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser
+from .models import CustomUser, Address
 
 class CustomUserAdmin(UserAdmin):
     # Fix list_display to match our model
@@ -35,3 +35,10 @@ class CustomUserAdmin(UserAdmin):
         return fieldsets
 
 admin.site.register(CustomUser, CustomUserAdmin)
+
+@admin.register(Address)
+class AddressAdmin(admin.ModelAdmin):
+    list_display = ('user', 'full_name', 'label', 'phone', 'city', 'state', 'pincode', 'is_default')
+    list_filter = ('label', 'is_default', 'state', 'created_at')
+    search_fields = ('user__email', 'user__phone', 'full_name', 'address_line1', 'pincode', 'city')
+    autocomplete_fields = ['user']

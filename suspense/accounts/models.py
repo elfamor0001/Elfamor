@@ -67,11 +67,35 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         self.save()
     
     @property
-    def can_receive_verification_code(self):
-        """Check if user can receive verification code (not too many attempts)"""
-        return self.phone_verification_attempts < 10  # Limit to 10 attempts
-    
-    @property
     def is_phone_verification_blocked(self):
         """Check if phone verification is temporarily blocked due to too many attempts"""
         return self.phone_verification_attempts >= 10
+
+class Address(models.Model):
+    ADDRESS_TYPES = (
+        ('HOME', 'Home'),
+        ('WORK', 'Work'),
+        ('OTHER', 'Other'),
+    )
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='addresses')
+    full_name = models.CharField(max_length=255)
+    phone = models.CharField(max_length=15)
+    email = models.EmailField(blank=True, null=True)
+    address_line1 = models.TextField(verbose_name="Address")
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    pincode = models.CharField(max_length=10)
+    
+    label = models.CharField(max_length=20, choices=ADDRESS_TYPES, default='HOME')
+    custom_label = models.CharField(max_length=50, blank=True, null=True)
+    
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.label} - {self.full_name}"
+
+    class Meta:
+        ordering = ['-is_default', '-created_at']

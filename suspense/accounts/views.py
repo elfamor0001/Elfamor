@@ -197,48 +197,38 @@ class RegisterView(View):
 class SendVerificationCodeView(View):
     """Send verification code to phone number"""
     def post(self, request):
-        data = json.loads(request.body)
-        phone = data.get('phone')
-        
-        print(f"\n=== SEND VERIFICATION CODE ===")
-        print(f"Received phone from frontend: '{phone}'")
-        print(f"Type: {type(phone)}, Length: {len(phone)}")
-        
-        if not phone:
-            return JsonResponse({'error': 'Phone number is required.'}, status=400)
-        
-        # Generate and send verification code
-        verification_code = generate_verification_code()
-        
-        # Log BEFORE storing
-        print(f"Generated code: {verification_code}")
-        print(f"Attempting to store for phone: '{phone}'")
-        
-        # Store the code
-        store_verification_code(phone, verification_code)
-        
-        # Immediately verify storage
-        cache_key = f"verification_code_{phone}"
-        stored_data = cache.get(cache_key)
-        print(f"Immediate cache check - Key: '{cache_key}'")
-        print(f"Stored data: {stored_data}")
-        
-        # Send SMS via Brevo
-        success, message = sms_service.send_verification_code(phone, verification_code)
-        
-        print(f"SMS send success: {success}, message: {message}")
-        print("=== END SEND ===\n")
-        
-        if not success:
-            print(f"SMS sending failed: {message}")
-
-        return JsonResponse({
-            'message': 'Verification code sent successfully.',
-            'phone': phone,
-            'cache_key_used': cache_key,
-            'sms_sent': success,
-            'sms_error': message if not success else None
-        })
+        try:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                return JsonResponse({'error': 'Invalid JSON body'}, status=400)
+                
+            phone = data.get('phone')
+            
+            print(f"\n=== SEND VERIFICATION CODE ===")
+            print(f"Received phone from frontend: '{phone}'")
+            
+            if not phone:
+                return JsonResponse({'error': 'Phone number is required.'}, status=400)
+            
+            # Generate and send verification code
+            verification_code = generate_verification_code()
+            store_verification_code(phone, verification_code)
+            
+            # Send SMS via Brevo
+            success, message = sms_service.send_verification_code(phone, verification_code)
+            
+            print(f"SMS send success: {success}, message: {message}")
+            
+            return JsonResponse({
+                'message': 'Verification code sent successfully.',
+                'phone': phone,
+                'sms_sent': success,
+                'sms_error': message if not success else None
+            })
+        except Exception as e:
+            print(f"CRITICAL ERROR in SendVerificationCodeView: {str(e)}")
+            return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
         
 @method_decorator(csrf_protect, name='dispatch')
 class VerifyPhoneView(View):
@@ -315,50 +305,25 @@ class PhoneLoginView(View):
         verification_data = None
         used_key = None
         
-        print("Checking cache with these keys:")
-        for key in possible_keys:
-            data = cache.get(key)
-            print(f"  Key: '{key}' -> Data: {data}")
-            if data and not verification_data:
-                verification_data = data
-                used_key = key
-        
-        
         if not verification_data:
-            # Try to list all cache keys (works for some backends)
-            print("Cache miss! Available cache keys (attempt):")
-            try:
-                # For Redis or similar
-                import django.core.cache
-                cache_instance = django.core.cache.cache
-                if hasattr(cache_instance, 'keys'):
-                    all_keys = cache_instance.keys('verification_code_*')
-                    print(f"  All verification keys: {all_keys}")
-            except:
-                print("  Could not list all keys")
-            
             return JsonResponse({'error': 'Verification code expired or not found. Please request a new code.'}, status=400)
-        
-        print(f"Found data with key: '{used_key}'")
-        print(f"Stored data: {verification_data}")
-
-        # Check attempts limit
-        if verification_data.get('attempts', 0) >= 5:
-            clear_verification_code(phone)
-            return JsonResponse({'error': 'Too many failed attempts. Please request a new code.'}, status=400)
-        
-        # Verify code
-        stored_code = verification_data.get('code')
-        # print(f"DEBUG: Stored code in cache: {stored_code}")
         
         if stored_code == verification_code:
             # Code is correct - find user and log them in
             try:
                 user = CustomUser.objects.get(phone=phone)
-                print(f"DEBUG: Found user: {user.email}")
 
                 # Log the user in (do not block by is_active for phone OTP login)
+                old_session_key = request.session.session_key
                 login(request, user)
+                
+                # Merge guest cart if exists
+                try:
+                    from .utils import merge_cart_on_login
+                    merge_cart_on_login(request, user, old_session_key)
+                except Exception as e:
+                    print(f"Merge cart error: {e}")
+
                 clear_verification_code(phone)
 
                 return JsonResponse({
@@ -372,7 +337,6 @@ class PhoneLoginView(View):
                 })
 
             except CustomUser.DoesNotExist:
-                print(f"DEBUG: No user found with phone {phone}")
                 return JsonResponse({'error': 'No account found with this phone number.'}, status=404)
         else:
             # Increment attempts
@@ -380,7 +344,10 @@ class PhoneLoginView(View):
             attempts = verification_data.get('attempts', 0)
             remaining_attempts = 5 - (attempts + 1)
             
-            print(f"DEBUG: Code mismatch. Attempt {attempts + 1}/5")
+            # Increment attempts
+            increment_verification_attempts(phone)
+            attempts = verification_data.get('attempts', 0)
+            remaining_attempts = 5 - (attempts + 1)
             
             return JsonResponse({
                 'error': f'Invalid verification code. {remaining_attempts} attempts remaining.',
@@ -420,6 +387,107 @@ class RequestLoginCodeView(View):
             'sms_sent': success
         })
 
+
+@method_decorator(csrf_protect, name='dispatch')
+class UnifiedLoginView(View):
+    """
+    Unified entry point for Phone Number Auth.
+    - Verifies OTP.
+    - If user exists -> Log in.
+    - If user does NOT exist -> Create user (lazy reg) -> Log in.
+    """
+    def post(self, request):
+        data = json.loads(request.body)
+        phone = data.get('phone')
+        verification_code = data.get('verification_code')
+
+        if not all([phone, verification_code]):
+            return JsonResponse({'error': 'Phone and verification code are required.'}, status=400)
+
+        # 1. Verify the code (Reuse logic or call helper)
+        # We'll basically reuse the verification logic here to keep it self-contained or call a helper
+        # ideally we should have a `verify_otp_helper` but for now we'll duplicate the cache check for safety
+        
+        # ... (Verification Logic from PhoneLoginView) ...
+        # Simplified for brevity in implementation:
+        
+        possible_keys = [
+            f"verification_code_{phone}",
+            f"verification_code_{phone.replace(' ', '')}",
+            f"verification_code_+91{phone.replace(' ', '')}",
+            f"verification_code_91{phone.replace(' ', '')}",
+        ]
+        
+        verification_data = None
+        for key in possible_keys:
+            data = cache.get(key)
+            if data and not verification_data:
+                verification_data = data
+        
+        if not verification_data:
+             return JsonResponse({'error': 'Verification code expired or not found. Please request a new code.'}, status=400)
+             
+        if verification_data.get('attempts', 0) >= 5:
+            clear_verification_code(phone)
+            return JsonResponse({'error': 'Too many failed attempts. Please request a new code.'}, status=400)
+            
+        stored_code = verification_data.get('code')
+        if stored_code != verification_code:
+            increment_verification_attempts(phone)
+            return JsonResponse({'error': 'Invalid verification code.'}, status=400)
+            
+        # 2. Code is Valid - Clear it
+        clear_verification_code(phone)
+        
+        # 3. Check / Create User
+        try:
+            user = CustomUser.objects.get(phone=phone)
+            is_new_user = False
+        except CustomUser.DoesNotExist:
+            print(f"User not found for {phone}. Creating new account (Lazy Registration).")
+            # Auto-register
+            clean_phone = phone.replace(' ', '')
+            dummy_email = f"{clean_phone}@noemail.elfamor.com"
+            base_username = f"u_{clean_phone}"
+            
+            # Ensure uniqueness just in case
+            username = base_username
+            if CustomUser.objects.filter(username=username).exists():
+                 username = f"{base_username}_{random.randint(1000,9999)}"
+            
+            user = CustomUser.objects.create_user(
+                email=dummy_email,
+                username=username,
+                phone=phone,
+                password=None # Unusable password
+            )
+            user.phone_verified = True
+            user.is_active = True
+            user.save()
+            is_new_user = True
+            
+        # 4. Log in
+        old_session_key = request.session.session_key
+        login(request, user)
+        
+        # Merge guest cart if exists
+        try:
+            from .utils import merge_cart_on_login
+            merge_cart_on_login(request, user, old_session_key)
+        except Exception as e:
+            print(f"Merge cart error: {e}")
+        
+        return JsonResponse({
+            'message': 'Login successful',
+            'is_new_user': is_new_user,
+            'user': {
+                'id': user.id,
+                'email': user.email, # Frontend can declare this "incomplete" if it ends in @noemail.elfamor.com
+                'username': user.username,
+                'phone': user.phone
+            }
+        })
+
 # Keep existing views for backward compatibility
 @method_decorator(csrf_protect, name='dispatch')
 class LoginView(View):
@@ -438,7 +506,16 @@ class LoginView(View):
 
         user = authenticate(request, username=email, password=password)
         if user is not None:
+            old_session_key = request.session.session_key
             login(request, user)
+            
+            # Merge guest cart if exists
+            try:
+                from .utils import merge_cart_on_login
+                merge_cart_on_login(request, user, old_session_key)
+            except Exception as e:
+                print(f"Merge cart error: {e}")
+                
             return JsonResponse({
                 'message': 'Login successful',
                 'user': {
@@ -490,3 +567,53 @@ def verify_email(request, uidb64, token):
         return JsonResponse({'message': 'Email verified successfully. You can now log in.'})
     else:
         return JsonResponse({'error': 'Invalid or expired verification link.'}, status=400)
+
+
+# ============================================================================
+# ADDRESS BOOK VIEWS
+# ============================================================================
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from .serializers import AddressSerializer
+from .models import Address
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_addresses(request):
+    """Get all addresses for the authenticated user"""
+    addresses = Address.objects.filter(user=request.user)
+    serializer = AddressSerializer(addresses, many=True)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_address(request):
+    """Create a new address"""
+    serializer = AddressSerializer(data=request.data, context={'request': request})
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def manage_address(request, address_id):
+    """Update or delete an address"""
+    try:
+        address = Address.objects.get(id=address_id, user=request.user)
+    except Address.DoesNotExist:
+        return Response({'error': 'Address not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+    if request.method == 'PUT':
+        serializer = AddressSerializer(address, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    elif request.method == 'DELETE':
+        address.delete()
+        return Response({'message': 'Address deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
