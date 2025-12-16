@@ -97,26 +97,26 @@ if DEBUG:
     CSRF_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SAMESITE = 'Lax'
 else:
+    # Production security
     SESSION_COOKIE_DOMAIN = '.elfamor.com'
     CSRF_COOKIE_DOMAIN = '.elfamor.com'
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    # Allow cross-site cookies for testing localhost frontend with production backend
-    ALLOW_CROSS_SITE_COOKIES = config('ALLOW_CROSS_SITE_COOKIES', default=True, cast=bool)
-
-    if ALLOW_CROSS_SITE_COOKIES:
-        CSRF_COOKIE_SAMESITE = 'None'
-        SESSION_COOKIE_SAMESITE = 'None'
-    else:
-        CSRF_COOKIE_SAMESITE = 'Lax'
-        SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SAMESITE = 'Lax'
 
 # Disable production security for development if needed
-# if DEBUG:
-#     CSRF_COOKIE_SECURE = False
-#     SESSION_COOKIE_SECURE = False
-#     CSRF_COOKIE_SAMESITE = 'Lax'
-#     SESSION_COOKIE_SAMESITE = 'Lax'
+# Global override for cross-site cookie testing (applies to both DEBUG True/False)
+ALLOW_CROSS_SITE_COOKIES = config('ALLOW_CROSS_SITE_COOKIES', default=True, cast=bool)
+
+if ALLOW_CROSS_SITE_COOKIES:
+    CSRF_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SAMESITE = 'None'
+    # Ensure Secure is True if SameSite is None (Browser requirement)
+    if not SESSION_COOKIE_SECURE:
+        SESSION_COOKIE_SECURE = True
+    if not CSRF_COOKIE_SECURE:
+        CSRF_COOKIE_SECURE = True
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = False
