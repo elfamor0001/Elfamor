@@ -101,8 +101,15 @@ else:
     CSRF_COOKIE_DOMAIN = '.elfamor.com'
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_SAMESITE = 'Lax'
-    SESSION_COOKIE_SAMESITE = 'Lax'
+    # Allow cross-site cookies for testing localhost frontend with production backend
+    ALLOW_CROSS_SITE_COOKIES = config('ALLOW_CROSS_SITE_COOKIES', default=False, cast=bool)
+
+    if ALLOW_CROSS_SITE_COOKIES:
+        CSRF_COOKIE_SAMESITE = 'None'
+        SESSION_COOKIE_SAMESITE = 'None'
+    else:
+        CSRF_COOKIE_SAMESITE = 'Lax'
+        SESSION_COOKIE_SAMESITE = 'Lax'
 
 # Disable production security for development if needed
 # if DEBUG:
