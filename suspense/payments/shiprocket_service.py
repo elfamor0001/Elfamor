@@ -259,6 +259,20 @@ class ShiprocketService:
         except Exception as e:
             logger.error(f"❌ Error creating Shiprocket order: {str(e)}")
             return False, str(e)
+
+    def _clean_phone(self, phone) -> str:
+        """
+        Ensure phone number is exactly 10 digits
+        """
+        if not phone:
+            return ""
+        # Remove non-digit characters
+        clean = ''.join(filter(str.isdigit, str(phone)))
+        # Take last 10 digits
+        if len(clean) > 10:
+            clean = clean[-10:]
+        return clean
+
     def get_tracking(self, order_id: int) -> Tuple[bool, Optional[Dict]]:
         """
         Get tracking information for a Shiprocket order
@@ -459,13 +473,21 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         else:
             pincode = int(pincode)
 
-        phone = shipping.get("phone")
-        if not phone or len(str(phone)) < 10:
+        raw_phone = shipping.get("phone", "")
+        clean_phone_str = service._clean_phone(raw_phone)
+        
+        try:
+            if not clean_phone_str or len(clean_phone_str) < 10:
+                logger.error(f"❌ Invalid phone format: {raw_phone} -> {clean_phone_str}. Using default.")
+                phone = 9999999999
+            else:
+                phone = int(clean_phone_str)
+                logger.info(f"✅ Phone formatted successfully: {raw_phone} -> {phone} (Type: {type(phone)})")
+        except ValueError as e:
+            logger.error(f"❌ Error converting phone to int: {e}. Raw: {raw_phone}")
             phone = 9999999999
-        else:
-            phone = int(phone)
 
-        email = django_order.user.email or "noemail@example.com"
+        email = shipping.get("email") or django_order.user.email or "noemail@example.com"
 
         # ---------------------
         # ORDER ITEMS
@@ -520,17 +542,17 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
 
             "shipping_is_billing": True,
 
-            # MUST SEND EMPTY (your working curl does it)
-            "shipping_customer_name": "",
-            "shipping_last_name": "",
-            "shipping_address": "",
+            # Populate shipping details same as billing (since shipping_is_billing is True)
+            "shipping_customer_name": first_name,
+            "shipping_last_name": last_name,
+            "shipping_address": address,
             "shipping_address_2": "",
-            "shipping_city": "",
-            "shipping_pincode": "",
-            "shipping_country": "",
-            "shipping_state": "",
-            "shipping_email": "",
-            "shipping_phone": "",
+            "shipping_city": city,
+            "shipping_pincode": pincode,
+            "shipping_country": country,
+            "shipping_state": state,
+            "shipping_email": email,
+            "shipping_phone": phone,
 
             "order_items": order_items,
             "payment_method": "Prepaid",
