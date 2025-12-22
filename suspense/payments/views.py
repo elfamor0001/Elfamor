@@ -79,10 +79,14 @@ def handle_successful_payment(order, payment_data):
         # ✅ CREATE SHIPROCKET ORDER ASYNCHRONOUSLY
         try:
             if hasattr(settings, 'SHIPROCKET_EMAIL') and settings.SHIPROCKET_EMAIL:
-                thread = threading.Thread(target=create_shiprocket_order_async, args=(order.id,))
+                # Pass the pre-generated ID explicitly to avoid race conditions
+                thread = threading.Thread(
+                    target=create_shiprocket_order_async, 
+                    args=(order.id, order.shiprocket_order_id)
+                )
                 thread.daemon = True
                 thread.start()
-                logger.info(f"Shiprocket order creation initiated for order {order.id}")
+                logger.info(f"Shiprocket order creation initiated for order {order.id} with ID {order.shiprocket_order_id}")
             else:
                 logger.warning("Shiprocket credentials not configured")
         except Exception as shiprocket_error:
@@ -830,7 +834,7 @@ from .shiprocket_service import ShiprocketService, create_shiprocket_order_from_
 import threading
 
 
-def create_shiprocket_order_async(order_id):
+def create_shiprocket_order_async(order_id, pre_generated_id=None):
     """
     Create Shiprocket order asynchronously (non-blocking) - FIXED VERSION
     """
@@ -840,6 +844,12 @@ def create_shiprocket_order_async(order_id):
         time.sleep(2)
         
         order = Order.objects.get(id=order_id)
+        
+        # ✅ FORCE USE OF PRE-GENERATED ID (Fixes race condition where DB read is stale)
+        if pre_generated_id:
+            order.shiprocket_order_id = pre_generated_id
+            logger.info(f"Using passed-in Shiprocket ID: {pre_generated_id}")
+            
         logger.info(f"🔄 Starting Shiprocket order creation for Django order {order_id}")
         
         # Determine cheapest courier before creating Shiprocket order
