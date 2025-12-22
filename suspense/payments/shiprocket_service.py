@@ -573,6 +573,7 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         # ---------------------
         # CALL SHIPROCKET
         # ---------------------
+        logger.info(f"🚀 Sending Order Payload: {json.dumps(order_data, indent=2, default=str)}")
         success, response = service.create_order(order_data)
         return success, response
 
