@@ -205,6 +205,32 @@ class ShiprocketService:
         except Exception as e:
             logger.error(f"Shipping calculation error: {str(e)}")
             return False, str(e)
+            
+    def get_pickup_locations(self) -> Tuple[bool, Optional[List]]:
+        """
+        Get list of pickup locations from Shiprocket
+        """
+        try:
+            if not self.token and not self.authenticate():
+                return False, "Authentication failed"
+                
+            response = requests.get(
+                f"{self.BASE_URL}/settings/company/pickup",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                locations = data.get('data', {}).get('shipping_address', [])
+                return True, locations
+            else:
+                logger.error(f"Failed to get pickup locations: {response.status_code} - {response.text}")
+                return False, f"API error: {response.status_code}"
+                
+        except Exception as e:
+            logger.error(f"Error getting pickup locations: {str(e)}")
+            return False, str(e)
         
     def create_order(self, order_data: Dict) -> Tuple[bool, Optional[Dict]]:
         """
@@ -214,6 +240,46 @@ class ShiprocketService:
         try:
             if not self.token and not self.authenticate():
                 return False, "Authentication failed"
+            
+            # ----------------------------------------
+            # ✅ DYNAMIC PICKUP LOCATION SELECTION
+            # ----------------------------------------
+            pickup_location_name = getattr(settings, 'SHIPROCKET_PICKUP_LOCATION_NAME', 'Home')
+            pickup_pincode = getattr(settings, 'SHIPROCKET_PICKUP_PINCODE', None)
+            
+            # Fetch actual locations to find the correct one
+            success, locations = self.get_pickup_locations()
+            
+            if success and locations:
+                # 1. Try to find location matching the configured PINCODE first (Most reliable)
+                matching_location = None
+                if pickup_pincode:
+                    for loc in locations:
+                        if str(loc.get('pin_code')) == str(pickup_pincode):
+                            matching_location = loc
+                            logger.info(f"✅ Found pickup location matching pincode {pickup_pincode}: {loc.get('pickup_location')}")
+                            break
+                            
+                # 2. If no pincode match, try to match by NAME
+                if not matching_location:
+                    for loc in locations:
+                        if loc.get('pickup_location') == pickup_location_name:
+                            matching_location = loc
+                            logger.info(f"✅ Found pickup location matching name '{pickup_location_name}'")
+                            break
+                            
+                # 3. If still nothing, use the FIRST available location (Fallback)
+                if not matching_location and locations:
+                    matching_location = locations[0]
+                    logger.warning(f"⚠️ configured match not found. Using fallback location: {matching_location.get('pickup_location')}")
+                    
+                if matching_location:
+                    pickup_location_name = matching_location.get('pickup_location')
+                    
+            logger.info(f"Using pickup location: '{pickup_location_name}'")
+            
+            # Override in order data
+            order_data['pickup_location'] = pickup_location_name
             
             logger.info(f"Creating Shiprocket order: {order_data.get('order_id')}")
             
@@ -463,8 +529,8 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         if not phone or len(str(phone)) < 10:
             phone = 9999999999
         else:
-            # Send as int as per user preference
-            phone = int(phone)
+            # Send as str to ensure compatibility, even if int was requested previously
+            phone = str(phone)
             
         logger.info(f"Final phone sent to Shiprocket: {phone} (Type: {type(phone)})")
 
