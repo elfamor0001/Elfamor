@@ -56,7 +56,10 @@ class BrevoEmailService:
             print(f"Skipping email for order {order.id}: Invalid email {email}")
             return False, "Invalid email"
 
-        subject = f"Order Confirmation - ORD{order.id}"
+        # Use Shiprocket ID if available, otherwise fallback to Django ID
+        display_order_id = order.shiprocket_order_id or f"ORD{order.id}"
+        
+        subject = f"Order Confirmation - {display_order_id}"
         
         # Build HTML content (simplified for now)
         items_html = ""
@@ -67,7 +70,7 @@ class BrevoEmailService:
         <html>
         <body>
             <h1>Thank you for your order, {name}!</h1>
-            <p>Your order <strong>ORD{order.id}</strong> has been successfully placed.</p>
+            <p>Your order <strong>{display_order_id}</strong> has been successfully placed.</p>
             <p><strong>Total Amount:</strong> Rs. {order.total_amount}</p>
             <h3>Order Details:</h3>
             <ul>

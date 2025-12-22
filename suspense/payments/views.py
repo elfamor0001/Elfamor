@@ -21,7 +21,7 @@ from .serializers import (
     VerifyPaymentSerializer,
     PaymentSerializer
 )
-from .shiprocket_service import calculate_shipping_charges_helper, ShiprocketService, create_shiprocket_order_from_django_order  # ✅ FIXED IMPORT
+from .shiprocket_service import calculate_shipping_charges_helper, ShiprocketService, create_shiprocket_order_from_django_order, generate_shiprocket_order_id  # ✅ FIXED IMPORT
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,16 @@ def handle_successful_payment(order, payment_data):
             logger.info(f"Cart cleared for user {order.user.id}")
         except Exception as cart_error:
             logger.warning(f"Could not clear cart: {str(cart_error)}")
+
+        # ✅ PRE-GENERATE UNIQUE SHIPROCKET ORDER ID
+        # This ensures both the Email and the API call use the exact same ID
+        try:
+            if not order.shiprocket_order_id:
+                order.shiprocket_order_id = generate_shiprocket_order_id(order)
+                order.save()
+                logger.info(f"Pre-generated Shiprocket ID for order {order.id}: {order.shiprocket_order_id}")
+        except Exception as id_error:
+            logger.error(f"Error generating shiprocket ID: {id_error}")
 
         # ✅ CREATE SHIPROCKET ORDER ASYNCHRONOUSLY
         try:

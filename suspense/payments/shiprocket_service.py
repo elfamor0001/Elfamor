@@ -512,7 +512,8 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         # ---------------------
         # UNIQUE ID GENERATION
         # ---------------------
-        unique_order_id = generate_shiprocket_order_id(django_order)
+        # Use existing ID if already set (e.g. by view), otherwise generate new unique one
+        unique_order_id = django_order.shiprocket_order_id or generate_shiprocket_order_id(django_order)
         
         # Fresh timestamp for order date
         import datetime
