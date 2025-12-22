@@ -1,7 +1,6 @@
 import requests
 import logging
 import json
-import datetime
 from django.conf import settings
 from typing import Optional, Dict, List, Tuple
 
@@ -524,12 +523,8 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         # BUILD ORDER DATA (EXACT MATCH)
         # ---------------------
         order_data = {
-            # Generate a unique order ID to avoid collision/cancellation history
-            import time
-            unique_suffix = int(time.time())
-            
-            "order_id": f"ORD{django_order.id}_{unique_suffix}",
-            "order_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "order_id": f"ORD{django_order.id}",
+            "order_date": django_order.created_at.strftime("%Y-%m-%d %H:%M"),
             "pickup_location": "Home",
 
             "comment": shipping.get("special_instructions", ""),
