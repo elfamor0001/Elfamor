@@ -259,20 +259,6 @@ class ShiprocketService:
         except Exception as e:
             logger.error(f"❌ Error creating Shiprocket order: {str(e)}")
             return False, str(e)
-
-    def _clean_phone(self, phone) -> str:
-        """
-        Ensure phone number is exactly 10 digits
-        """
-        if not phone:
-            return ""
-        # Remove non-digit characters
-        clean = ''.join(filter(str.isdigit, str(phone)))
-        # Take last 10 digits
-        if len(clean) > 10:
-            clean = clean[-10:]
-        return clean
-
     def get_tracking(self, order_id: int) -> Tuple[bool, Optional[Dict]]:
         """
         Get tracking information for a Shiprocket order
@@ -445,6 +431,18 @@ def calculate_shipping(pickup_postcode, delivery_postcode, weight, length=10, br
         logger.error(f"Error in calculate_shipping helper: {str(e)}")
         return False, str(e)
 
+def generate_shiprocket_order_id(django_order):
+    """
+    Generates a unique order ID for Shiprocket to avoid 'already exists' or 'cancelled' errors.
+    Format: ORD{django_id}-{timestamp}
+    Example: ORD70-1703234567
+    """
+    import time
+    unique_suffix = int(time.time())
+    shiprocket_order_id = f"ORD{django_order.id}-{unique_suffix}"
+    logger.info(f"Generated unique Shiprocket Order ID: {shiprocket_order_id}")
+    return shiprocket_order_id
+
 def create_shiprocket_order_from_django_order(django_order, preferred_courier=None):
     try:
         service = ShiprocketService()
@@ -473,21 +471,13 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         else:
             pincode = int(pincode)
 
-        raw_phone = shipping.get("phone", "")
-        clean_phone_str = service._clean_phone(raw_phone)
-        
-        try:
-            if not clean_phone_str or len(clean_phone_str) < 10:
-                logger.error(f"❌ Invalid phone format: {raw_phone} -> {clean_phone_str}. Using default.")
-                phone = 9999999999
-            else:
-                phone = int(clean_phone_str)
-                logger.info(f"✅ Phone formatted successfully: {raw_phone} -> {phone} (Type: {type(phone)})")
-        except ValueError as e:
-            logger.error(f"❌ Error converting phone to int: {e}. Raw: {raw_phone}")
+        phone = shipping.get("phone")
+        if not phone or len(str(phone)) < 10:
             phone = 9999999999
+        else:
+            phone = int(phone)
 
-        email = shipping.get("email") or django_order.user.email or "noemail@example.com"
+        email = django_order.user.email or "noemail@example.com"
 
         # ---------------------
         # ORDER ITEMS
@@ -518,13 +508,22 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         length = 10
         breadth = 10
         height = 10
+        
+        # ---------------------
+        # UNIQUE ID GENERATION
+        # ---------------------
+        unique_order_id = generate_shiprocket_order_id(django_order)
+        
+        # Fresh timestamp for order date
+        import datetime
+        order_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
         # ---------------------
         # BUILD ORDER DATA (EXACT MATCH)
         # ---------------------
         order_data = {
-            "order_id": f"ORD{django_order.id}",
-            "order_date": django_order.created_at.strftime("%Y-%m-%d %H:%M"),
+            "order_id": unique_order_id,
+            "order_date": order_date,
             "pickup_location": "Home",
 
             "comment": shipping.get("special_instructions", ""),
@@ -542,17 +541,17 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
 
             "shipping_is_billing": True,
 
-            # Populate shipping details same as billing (since shipping_is_billing is True)
-            "shipping_customer_name": first_name,
-            "shipping_last_name": last_name,
-            "shipping_address": address,
+            # MUST SEND EMPTY (your working curl does it)
+            "shipping_customer_name": "",
+            "shipping_last_name": "",
+            "shipping_address": "",
             "shipping_address_2": "",
-            "shipping_city": city,
-            "shipping_pincode": pincode,
-            "shipping_country": country,
-            "shipping_state": state,
-            "shipping_email": email,
-            "shipping_phone": phone,
+            "shipping_city": "",
+            "shipping_pincode": "",
+            "shipping_country": "",
+            "shipping_state": "",
+            "shipping_email": "",
+            "shipping_phone": "",
 
             "order_items": order_items,
             "payment_method": "Prepaid",
@@ -573,7 +572,6 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         # ---------------------
         # CALL SHIPROCKET
         # ---------------------
-        logger.info(f"🚀 Sending Order Payload: {json.dumps(order_data, indent=2, default=str)}")
         success, response = service.create_order(order_data)
         return success, response
 
