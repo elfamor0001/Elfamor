@@ -589,17 +589,17 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
 
             "shipping_is_billing": True,
 
-            # MUST SEND EMPTY (your working curl does it)
-            "shipping_customer_name": "",
-            "shipping_last_name": "",
-            "shipping_address": "",
+            # Populate shipping details same as billing (since shipping_is_billing is True)
+            "shipping_customer_name": first_name,
+            "shipping_last_name": last_name,
+            "shipping_address": address,
             "shipping_address_2": "",
-            "shipping_city": "",
-            "shipping_pincode": "",
-            "shipping_country": "",
-            "shipping_state": "",
-            "shipping_email": "",
-            "shipping_phone": "",
+            "shipping_city": city,
+            "shipping_pincode": pincode,
+            "shipping_country": country,
+            "shipping_state": state,
+            "shipping_email": email,
+            "shipping_phone": phone,
 
             "order_items": order_items,
             "payment_method": "Prepaid",
