@@ -473,12 +473,13 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
         else:
             pincode = int(pincode)
 
-        phone = shipping.get("phone")
-        if not phone or len(str(phone)) < 10:
+        raw_phone = shipping.get("phone", "")
+        clean_phone_str = service._clean_phone(raw_phone)
+        
+        if not clean_phone_str or len(clean_phone_str) < 10:
             phone = 9999999999
         else:
-            # Send as int as per user preference
-            phone = int(phone)
+            phone = int(clean_phone_str)
             
         logger.info(f"Final phone sent to Shiprocket: {phone} (Type: {type(phone)})")
 
@@ -533,7 +534,7 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
             "billing_state": state,
             "billing_country": country,
             "billing_email": email,
-            "billing_phone": int(service._clean_phone(phone)),
+            "billing_phone": phone,
 
             "shipping_is_billing": True,
 
@@ -547,7 +548,7 @@ def create_shiprocket_order_from_django_order(django_order, preferred_courier=No
             "shipping_country": country,
             "shipping_state": state,
             "shipping_email": email,
-            "shipping_phone": int(service._clean_phone(phone)),
+            "shipping_phone": phone,
 
             "order_items": order_items,
             "payment_method": "Prepaid",
