@@ -95,16 +95,19 @@ class BrevoEmailService:
         if not email or "@noemail.elfamor.com" in email:
             return False, "Invalid email"
 
-        subject = f"Update on Order ORD{order.id}: {status}"
+        # Use Shiprocket ID if available, otherwise fallback to Django ID
+        display_order_id = order.shiprocket_order_id or f"ORD{order.id}"
+
+        subject = f"Update on Order {display_order_id}: {status}"
         
-        tracking_info = f'<p>Track your package here: <a href="{tracking_url}" style="color: #4A90E2; font-weight: bold;">Track Order ORD{order.id}</a></p>' if tracking_url else ''
+        tracking_info = f'<p>Track your package here: <a href="{tracking_url}" style="color: #4A90E2; font-weight: bold;">Track Order {display_order_id}</a></p>' if tracking_url else ''
         
         html_content = f"""
         <html>
         <body>
             <h1>Shipping Update</h1>
             <p>Hi {name},</p>
-            <p>Your order <strong>ORD{order.id}</strong> is now <strong>{status}</strong>.</p>
+            <p>Your order <strong>{display_order_id}</strong> is now <strong>{status}</strong>.</p>
             {tracking_info}
             <br>
             <p>Thank you for shopping with Elfamor.</p>
