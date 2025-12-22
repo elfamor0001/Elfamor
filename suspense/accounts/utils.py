@@ -56,8 +56,9 @@ class BrevoEmailService:
             print(f"Skipping email for order {order.id}: Invalid email {email}")
             return False, "Invalid email"
 
-        # Use Shiprocket ID if available, otherwise fallback to Django ID
-        display_order_id = order.shiprocket_order_id or f"ORD{order.id}"
+        # Use Shiprocket Channel ID (ORD...) if available, otherwise fallback to Django ID
+        tracking_data = order.tracking_data or {}
+        display_order_id = tracking_data.get('shiprocket_channel_id') or f"ORD{order.id}"
         
         subject = f"Order Confirmation - {display_order_id}"
         
@@ -95,8 +96,9 @@ class BrevoEmailService:
         if not email or "@noemail.elfamor.com" in email:
             return False, "Invalid email"
 
-        # Use Shiprocket ID if available, otherwise fallback to Django ID
-        display_order_id = order.shiprocket_order_id or f"ORD{order.id}"
+        # Use Shiprocket Channel ID (ORD...) if available, otherwise fallback to Django ID
+        tracking_data = order.tracking_data or {}
+        display_order_id = tracking_data.get('shiprocket_channel_id') or f"ORD{order.id}"
 
         subject = f"Update on Order {display_order_id}: {status}"
         

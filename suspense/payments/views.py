@@ -67,22 +67,31 @@ def handle_successful_payment(order, payment_data):
             logger.warning(f"Could not clear cart: {str(cart_error)}")
 
         # ✅ PRE-GENERATE UNIQUE SHIPROCKET ORDER ID
-        # This ensures both the Email and the API call use the exact same ID
+        # Store in tracking_data since shiprocket_order_id is an IntegerField for the system ID
         try:
-            if not order.shiprocket_order_id:
-                order.shiprocket_order_id = generate_shiprocket_order_id(order)
-                order.save()
-                logger.info(f"Pre-generated Shiprocket ID for order {order.id}: {order.shiprocket_order_id}")
+            # Generate unique ID
+            unique_id = generate_shiprocket_order_id(order)
+            
+            # Initialize tracking_data if None
+            if not order.tracking_data:
+                order.tracking_data = {}
+                
+            # Save to tracking data
+            order.tracking_data['shiprocket_channel_id'] = unique_id
+            order.save()
+            logger.info(f"Pre-generated Shiprocket Channel ID for order {order.id}: {unique_id}")
+            
         except Exception as id_error:
             logger.error(f"Error generating shiprocket ID: {id_error}")
+            unique_id = None
 
         # ✅ CREATE SHIPROCKET ORDER ASYNCHRONOUSLY
         try:
             if hasattr(settings, 'SHIPROCKET_EMAIL') and settings.SHIPROCKET_EMAIL:
-                # Pass the pre-generated ID explicitly to avoid race conditions
+                # Pass the pre-generated ID explicitly
                 thread = threading.Thread(
                     target=create_shiprocket_order_async, 
-                    args=(order.id, order.shiprocket_order_id)
+                    args=(order.id, unique_id)
                 )
                 thread.daemon = True
                 thread.start()
@@ -845,10 +854,13 @@ def create_shiprocket_order_async(order_id, pre_generated_id=None):
         
         order = Order.objects.get(id=order_id)
         
-        # ✅ FORCE USE OF PRE-GENERATED ID (Fixes race condition where DB read is stale)
+        # ✅ FORCE USE OF PRE-GENERATED ID
         if pre_generated_id:
-            order.shiprocket_order_id = pre_generated_id
-            logger.info(f"Using passed-in Shiprocket ID: {pre_generated_id}")
+            if not order.tracking_data:
+                order.tracking_data = {}
+            order.tracking_data['shiprocket_channel_id'] = pre_generated_id
+            # Don't save yet, just updating object state for service call
+            logger.info(f"Using passed-in Shiprocket Channel ID: {pre_generated_id}")
             
         logger.info(f"🔄 Starting Shiprocket order creation for Django order {order_id}")
         
